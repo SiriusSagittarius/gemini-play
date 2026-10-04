@@ -5,6 +5,8 @@
  *                    und liefert den aktuellen Kontostand.
  * generateGame       Zieht atomar 1 Credit ab, generiert per Gemini eine
  *                    HTML-App und bucht den Credit zurück, falls das scheitert.
+ * verifyPurchase     Prüft einen Google-Play-Kauf und schreibt die Credits
+ *                    genau einmal gut.
  * reportContent      Nimmt Meldungen zu KI-generierten Inhalten entgegen
  *                    (Google-Play-Richtlinie für KI-Apps).
  * deleteAccount      Löscht Credits-Profil und anonymes Konto des Nutzers.
@@ -21,6 +23,14 @@ const { getAuth } = require("firebase-admin/auth");
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
 const { GoogleGenAI } = require("@google/genai");
 const { SYSTEM_PROMPT, buildUserPrompt, cleanHtml, extractTitle } = require("./html");
+const {
+  PRODUCTS,
+  accountIdFor,
+  purchaseDocId,
+  checkPurchase,
+  fetchPurchase,
+  consumePurchase,
+} = require("./purchases");
 
 initializeApp();
 const db = getFirestore();
@@ -30,7 +40,7 @@ const GEMINI_API_KEY = defineSecret("GEMINI_API_KEY");
 
 const REGION = "europe-west3"; // Frankfurt – muss in der App identisch sein.
 const GEMINI_MODEL = "gemini-flash-latest"; // Alias auf das aktuelle Flash-Modell.
-const FREE_CREDITS = 3;
+const FREE_CREDITS = 2;
 const MAX_PROMPT_LENGTH = 4000;
 const FUNCTION_TIMEOUT_SECONDS = 300;
 // Kürzer als das Function-Timeout, damit die Rückbuchung sicher noch läuft.
@@ -89,7 +99,11 @@ exports.generateGame = onCall(
       const credits = snap.exists ? readCredits(snap) : FREE_CREDITS;
       if (credits <= 0) {
         // „resource-exhausted“ steht in der App ausschließlich für „keine Credits“.
-        throw new HttpsError("resource-exhausted", "Du hast keine Credits mehr.", { credits: 0 });
+        throw new HttpsError(
+          "resource-exhausted",
+          "Keine Credits mehr – bitte im Shop aufladen.",
+          { credits: 0 },
+        );
       }
       if (snap.exists) {
         tx.update(userRef, {
@@ -122,6 +136,80 @@ exports.generateGame = onCall(
   },
 );
 
+exports.verifyPurchase = onCall({ ...baseOptions, maxInstances: 10 }, async (request) => {
+  const uid = requireUid(request);
+  const productId = limitedString(request.data?.productId, 100);
+  const purchaseToken = limitedString(request.data?.purchaseToken, 4096);
+  const credits = PRODUCTS[productId];
+  if (!credits) throw new HttpsError("invalid-argument", "Unbekanntes Produkt.");
+  if (!purchaseToken) throw new HttpsError("invalid-argument", "Der Kaufbeleg fehlt.");
+
+  // 1. Beleg direkt bei Google Play prüfen – der App wird nicht vertraut.
+  let purchase;
+  try {
+    purchase = await fetchPurchase(productId, purchaseToken);
+  } catch (error) {
+    const status = error?.response?.status ?? error?.status ?? null;
+    logger.error("Kauf-Prüfung bei Google Play fehlgeschlagen", {
+      uid,
+      productId,
+      status,
+      detail: String(error?.message ?? error),
+    });
+    if (status === 400 || status === 404 || status === 410) {
+      throw new HttpsError("invalid-argument", "Der Kaufbeleg ist ungültig.");
+    }
+    throw new HttpsError(
+      "unavailable",
+      "Der Kauf konnte gerade nicht geprüft werden. Deine Credits werden automatisch nachgebucht.",
+    );
+  }
+  checkPurchase(purchase, accountIdFor(uid));
+
+  // 2. Gutschreiben – jeder Beleg genau einmal (Transaktion über purchases/{hash}).
+  const purchaseRef = db.collection("purchases").doc(purchaseDocId(purchaseToken));
+  const userRef = db.collection("users").doc(uid);
+  const added = await db.runTransaction(async (tx) => {
+    const purchaseSnap = await tx.get(purchaseRef);
+    if (purchaseSnap.exists) {
+      if (purchaseSnap.get("uid") !== uid) {
+        throw new HttpsError("permission-denied", "Dieser Kauf gehört zu einem anderen Konto.");
+      }
+      return 0;
+    }
+    tx.set(purchaseRef, {
+      uid,
+      productId,
+      orderId: purchase.orderId ?? null,
+      credits,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+    tx.set(
+      userRef,
+      { credits: FieldValue.increment(credits), lastPurchaseAt: FieldValue.serverTimestamp() },
+      { merge: true },
+    );
+    return credits;
+  });
+
+  // 3. Verbrauchen, damit das Paket erneut gekauft werden kann. Schlägt das
+  //    fehl, holt es der nächste Aufruf mit demselben Beleg nach.
+  if (purchase.consumptionState !== 1) {
+    try {
+      await consumePurchase(productId, purchaseToken);
+    } catch (error) {
+      logger.error("Kauf konnte nicht verbraucht werden", {
+        uid,
+        productId,
+        detail: String(error?.message ?? error),
+      });
+    }
+  }
+
+  if (added > 0) logger.info("Kauf gutgeschrieben", { uid, productId, orderId: purchase.orderId, added });
+  return { added };
+});
+
 const MAX_REPORT_TEXT = 4000;
 const MAX_REPORT_HTML = 100_000;
 
@@ -152,10 +240,16 @@ exports.deleteAccount = onCall(baseOptions, async (request) => {
 
   await db.collection("users").doc(uid).delete();
 
-  // Meldungen bleiben zur Moderation erhalten, werden aber vom Konto getrennt.
-  const reports = await db.collection("reports").where("uid", "==", uid).get();
+  // Meldungen (Moderation) und Kaufbelege (Aufbewahrungspflicht) bleiben
+  // erhalten, werden aber vom Konto getrennt.
+  const [reports, purchases] = await Promise.all([
+    db.collection("reports").where("uid", "==", uid).get(),
+    db.collection("purchases").where("uid", "==", uid).get(),
+  ]);
   const batch = db.batch();
-  reports.forEach((doc) => batch.update(doc.ref, { uid: FieldValue.delete() }));
+  for (const doc of [...reports.docs, ...purchases.docs]) {
+    batch.update(doc.ref, { uid: FieldValue.delete() });
+  }
   await batch.commit();
 
   await getAuth().deleteUser(uid);

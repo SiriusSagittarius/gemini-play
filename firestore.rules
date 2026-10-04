@@ -11,9 +11,9 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // Alles andere ist gesperrt, auch `reports` (Meldungen zu KI-Inhalten):
-    // Sie werden nur von der Function reportContent geschrieben und in der
-    // Firebase-Konsole gesichtet.
+    // Alles andere ist gesperrt, auch `reports` (Meldungen zu KI-Inhalten) und
+    // `purchases` (geprüfte Google-Play-Käufe): Beide schreiben nur die
+    // Functions, gesichtet werden sie in der Firebase-Konsole.
     match /{document=**} {
       allow read, write: if false;
     }

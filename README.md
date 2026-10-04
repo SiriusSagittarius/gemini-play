@@ -8,7 +8,7 @@ KI-Generator für Mini-Apps und Spiele auf Android. Du beschreibst eine Idee, ei
 
 - **Zwei Wege zur Generierung**
   - **Eigener API-Key** für Google Gemini oder Groq: unbegrenzt, direkt vom Gerät aus.
-  - **PromptPlay Cloud**: 3 Gratis-Credits ohne Registrierung. Die Generierung läuft über eine Firebase Cloud Function.
+  - **PromptPlay Cloud**: 2 Gratis-Credits ohne Registrierung, weitere Credits im Shop (Google Play Billing). Die Generierung läuft über eine Firebase Cloud Function.
 - **Projektliste** mit Öffnen, Teilen und Löschen.
 - **Player:** WebView mit Touch-Steuerung und Vollbild-Modus.
 - **Play-Store-konform:**
@@ -23,7 +23,7 @@ KI-Generator für Mini-Apps und Spiele auf Android. Du beschreibst eine Idee, ei
 |---|---|
 | [lib/main.dart](lib/main.dart) | die komplette App |
 | `lib/firebase_options.dart` | Firebase-Konfiguration – nicht im Repository, siehe „Firebase einrichten“ |
-| [functions/](functions/) | Cloud Functions (Node 22): `ensureUserProfile`, `generateGame`, `reportContent`, `deleteAccount` |
+| [functions/](functions/) | Cloud Functions (Node 22): `ensureUserProfile`, `generateGame`, `verifyPurchase`, `reportContent`, `deleteAccount` |
 | [firestore.rules](firestore.rules) | Security Rules: Clients dürfen nur ihr eigenes Credit-Dokument lesen |
 | [docs/](docs/) | Startseite und Datenschutzerklärung (GitHub Pages) |
 | [store/](store/) | Grafiken für den Play-Store-Eintrag |

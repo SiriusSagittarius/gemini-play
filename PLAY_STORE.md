@@ -4,11 +4,11 @@ Diese Datei enthält alles, was du in der [Play Console](https://play.google.com
 
 ## 1. Vor dem Einreichen erledigen
 
-- [ ] **Datenschutzerklärung ausfüllen:** In [docs/datenschutz.html](docs/datenschutz.html) die gelb markierten Felder (Name, Anschrift, E-Mail) ersetzen und pushen. Ohne Verantwortlichen ist sie nach DSGVO unvollständig.
+- [x] **Datenschutzerklärung ausfüllen** (Verantwortlicher eingetragen).
 - [ ] **Screenshots machen:** mindestens 2 Handy-Screenshots, z. B. Projektliste, Erstellen-Bildschirm, laufendes Spiel.
-- [ ] **Upload-Schlüssel sichern:** `android/app/upload-keystore.jks` und das Passwort aus `android/key.properties` an zwei getrennten Orten sichern, z. B. Datei im Cloud-Speicher und Passwort im Passwort-Manager. Beides ist absichtlich nicht im Repository.
+- [ ] **Upload-Schlüssel sichern:** `android/app/upload-keystore.jks` sowie Alias und Passwort aus `android/key.properties` an zwei getrennten Orten sichern, z. B. Datei im Cloud-Speicher und Passwort im Passwort-Manager. Beides ist absichtlich nicht im Repository.
 
-## 2. Technische Anforderungen (Stand: Version 1.0.0)
+## 2. Technische Anforderungen (Stand: Version 1.1.0)
 
 | Anforderung | Stand |
 |---|---|
@@ -20,16 +20,16 @@ Diese Datei enthält alles, was du in der [Play Console](https://play.google.com
 | Datenschutzerklärung in App und Store | ✅ Einstellungen → „Datenschutzerklärung“ |
 | Konto- und Datenlöschung in der App | ✅ Einstellungen → „Cloud-Konto & Credits löschen“ |
 | Keine Werbung, kein Tracking | ✅ |
-| Keine Zahlungen außerhalb von Google Play | ✅ „Credits nachkaufen“ zeigt nur „in Vorbereitung“ |
-| Berechtigungen | nur normale Berechtigungen (Internet; Firebase ergänzt Netzwerkstatus, Wake-Lock, Cloud Messaging) |
+| Käufe nur über Google Play Billing | ✅ Credit-Shop mit Produkt `credits_20`, Prüfung auf dem Server |
+| Berechtigungen | nur normale Berechtigungen (Internet, Google Play Billing; Firebase ergänzt Netzwerkstatus, Wake-Lock, Cloud Messaging) |
 
 ## 3. App anlegen
 
-- **App-Name (max. 30 Zeichen):** `PromptPlay – KI-Spiele & Apps`
+- **App-Name (max. 30 Zeichen):** `PromptPlay: Vibe Coding Games`
   „Gemini“ ist eine Marke von Google und gehört deshalb nicht in den Namen.
 - **Standardsprache:** Deutsch
 - **App oder Spiel:** App
-- **Kostenlos oder kostenpflichtig:** Kostenlos
+- **Kostenlos oder kostenpflichtig:** Kostenlos (mit In-App-Käufen)
 
 ## 4. Store-Eintrag
 
@@ -39,7 +39,7 @@ Diese Datei enthält alles, was du in der [Play Console](https://play.google.com
 
 **Vollständige Beschreibung:**
 
-> PromptPlay verwandelt deine Ideen in spielbare Mini-Apps. Beschreibe einfach, was du möchtest – zum Beispiel „Baue mir ein Tetris für Touchscreens“ oder „Erstelle ein Quiz mit 10 Fragen über das Sonnensystem“ – und die KI erstellt daraus in Sekunden eine fertige App, die du sofort im Vollbild spielen kannst.
+> Vibe Coding für dein Handy: PromptPlay verwandelt deine Ideen in spielbare Mini-Apps – ganz ohne Programmierkenntnisse. Beschreibe einfach, was du möchtest – zum Beispiel „Baue mir ein Tetris für Touchscreens“ oder „Erstelle ein Quiz mit 10 Fragen über das Sonnensystem“ – und die KI erstellt daraus in Sekunden eine fertige App, die du sofort im Vollbild spielen kannst.
 >
 > ★ So funktioniert's
 > • Idee eingeben oder ein Beispiel antippen
@@ -51,8 +51,9 @@ Diese Datei enthält alles, was du in der [Play Console](https://play.google.com
 > • Vollbild-Modus für ungestörtes Spielen
 > • Alle Projekte übersichtlich in deiner Bibliothek
 > • Teilen des HTML-Codes über den Android-Teilen-Dialog
-> • 3 Gratis-Credits zum Ausprobieren – ohne Registrierung
-> • Unbegrenzt erstellen mit einem eigenen kostenlosen API-Key von Google Gemini oder Groq
+> • 2 Gratis-Credits zum Ausprobieren – ohne Registrierung
+> • Weitere Credits im Shop: 20 Credits für 1,99 €
+> • Oder unbegrenzt erstellen mit einem eigenen kostenlosen API-Key von Google Gemini oder Groq
 >
 > ★ Datenschutz
 > • Keine Werbung, kein Tracking
@@ -77,7 +78,7 @@ Diese Datei enthält alles, was du in der [Play Console](https://play.google.com
 - **Werbung:** Nein
 - **App-Zugriff:** Alle Funktionen ohne besondere Zugangsdaten verfügbar
 - **Zielgruppe:** 18 Jahre und älter. KI-Inhalte sind nicht vorhersagbar; so gelten die Zusatzregeln für Kinder-Apps nicht.
-- **Einstufung (IARC-Fragebogen):** Die App selbst enthält keine Gewalt, Sexualität oder Glücksspiel. Wenn gefragt wird, ob Nutzer Inhalte erzeugen oder KI-Inhalte generiert werden: **Ja**. Nutzer können **nicht** miteinander kommunizieren, und es gibt **keine** Standortfreigabe und **keine** Käufe.
+- **Einstufung (IARC-Fragebogen):** Die App selbst enthält keine Gewalt, Sexualität oder Glücksspiel. Wenn gefragt wird, ob Nutzer Inhalte erzeugen oder KI-Inhalte generiert werden: **Ja**. Nutzer können **nicht** miteinander kommunizieren, und es gibt **keine** Standortfreigabe. **Digitale Käufe: Ja.**
 - **Finanzfunktionen, Gesundheit, Behörden-App, Nachrichten-App:** Nein
 
 ### Datensicherheit
@@ -91,10 +92,11 @@ Diese Datei enthält alles, was du in der [Play Console](https://play.google.com
 | Datentyp | Erhoben | Geteilt | Optional | Zweck |
 |---|---|---|---|---|
 | Personenbezogene Daten → Nutzer-IDs (anonyme Firebase-Kennung) | Ja | Nein | Nein | App-Funktionalität; Betrugsprävention, Sicherheit |
+| Finanzdaten → Kaufverlauf (gekaufte Credit-Pakete) | Ja | Nein | Ja | App-Funktionalität |
 | App-Aktivitäten → Andere nutzergenerierte Inhalte (Prompts, Meldungen) | Ja | Nein | Nein | App-Funktionalität |
 | Geräte- oder andere IDs (von Firebase-SDKs) | Ja | Nein | Nein | App-Funktionalität |
 
-Google (Firebase, Gemini API) handelt als Dienstleister. Das gilt nach Play-Definition nicht als „Teilen“. Gleiche die Angaben zu den Firebase-SDKs mit Googles Übersicht ab: [Firebase-Angaben für die Datensicherheit](https://firebase.google.com/docs/android/play-data-disclosure).
+Google (Firebase, Gemini API, Google Play) handelt als Dienstleister. Das gilt nach Play-Definition nicht als „Teilen“. Gleiche die Angaben zu den Firebase-SDKs mit Googles Übersicht ab: [Firebase-Angaben für die Datensicherheit](https://firebase.google.com/docs/android/play-data-disclosure).
 
 ## 6. Hochladen und veröffentlichen
 
@@ -103,15 +105,33 @@ Google (Firebase, Gemini API) handelt als Dienstleister. Das gilt nach Play-Defi
 2. **Tester einladen.** Für neue private Entwicklerkonten gilt: Mindestens 12 Tester müssen 14 Tage am geschlossenen Test teilnehmen. Erst danach kannst du die Produktion beantragen.
 3. Nach der Freigabe: **Produktion → Neuer Release** mit demselben App Bundle.
 
-## 7. Nach dem ersten Upload (empfohlen)
+## 7. Credit-Verkauf einrichten
 
-- **SHA-256 des App-Signaturschlüssels kopieren:** Play Console → Einrichtung → App-Signatur.
-- **Firebase App Check (Play Integrity) aktivieren.** Dann setzt du in `functions/index.js` `enforceAppCheck: true`. So kann nur deine echte App die Gratis-Credits nutzen.
-- **API-Key einschränken:** In der Google Cloud Console den Firebase-API-Key (aus `lib/firebase_options.dart`) auf das Paket `com.promptplay.promptplay` und die SHA-1-Fingerabdrücke beschränken.
-- **Gemini-Kontingent:** Der Server-Key nutzt die kostenlose Gemini-Stufe. Ihr Tageslimit ist für viele Nutzer zu klein, und Google darf die Inhalte zur Produktverbesserung verwenden. Für den echten Betrieb einen Key mit aktivierter Abrechnung hinterlegen.
+Die App bietet im Shop das Produkt `credits_20` an. Die Cloud Function `verifyPurchase` prüft jeden Kauf bei Google Play, schreibt 20 Credits genau einmal gut und verbraucht den Kauf danach, damit er erneut gekauft werden kann. Damit das funktioniert:
 
-## 8. Neue Version veröffentlichen
+1. **Zahlungsprofil anlegen:** Play Console → Einrichtung → Zahlungsprofil (Bankverbindung, Adresse).
+2. **Version mit Kauf-Funktion hochladen** (ab 1.1.0, siehe Abschnitt 6). Erst dann lassen sich In-App-Produkte anlegen.
+3. **Produkt anlegen:** App → Monetarisieren → Produkte → In-App-Produkte (Einmalkäufe) → „Produkt erstellen“
+   - Produkt-ID: `credits_20` (genau so, nicht mehr änderbar)
+   - Name: `20 Spiele-Credits`
+   - Beschreibung: `20 Credits für neue Spiele und Mini-Apps in PromptPlay`
+   - Preis: 1,99 € → speichern und **aktivieren**
+4. **Google Play Android Developer API aktivieren:** Google Cloud Console des Firebase-Projekts → APIs & Dienste → Bibliothek → „Google Play Android Developer API“ → Aktivieren.
+5. **Server berechtigen:** Play Console → Nutzer und Berechtigungen → „Neue Nutzer einladen“ → E-Mail des Dienstkontos der Functions eintragen (Google Cloud Console → IAM → Dienstkonten → „Default compute service account“, endet auf `-compute@developer.gserviceaccount.com`) → bei der App die Berechtigungen **„Finanzdaten ansehen“** und **„Bestellungen und Abos verwalten“** vergeben.
+6. **Lizenztester eintragen:** Play Console → Einstellungen → Lizenztests → deine Test-E-Mail-Adressen. Diese Konten kaufen im Test, ohne belastet zu werden.
+7. **Vor echten Verkäufen:**
+   - **Gemini-Key mit Abrechnung** auf dem Server hinterlegen (`functions:secrets:set GEMINI_API_KEY`). Die kostenlose Stufe reicht für zahlende Nutzer nicht.
+   - **Kosten durchrechnen:** 1,99 € abzüglich 15 % Google-Gebühr ergeben ca. 1,69 € für 20 Generierungen, also rund 8 Cent pro Spiel. Die Gemini-Kosten pro Generierung müssen darunter liegen.
+   - **App Check aktivieren** (siehe Abschnitt 8).
+   - **Rechtliches:** Credit-Verkauf ist eine gewerbliche Tätigkeit (Gewerbeanmeldung, Impressum, Steuer). Das kläre bitte mit Finanzamt oder Steuerberater.
 
-1. In `pubspec.yaml` die Version erhöhen, z. B. `1.0.1+2`. Die Zahl hinter `+` muss bei jedem Upload steigen.
+## 8. Nach dem ersten Upload
+
+- **SHA-1 des App-Signaturschlüssels** (Play Console → Einrichtung → App-Signatur) zusätzlich bei der Einschränkung des Firebase-API-Keys eintragen, sonst funktioniert die Cloud in der Store-Version nicht.
+- **Firebase App Check (Play Integrity) aktivieren** und in `functions/index.js` `enforceAppCheck: true` setzen. So kann nur deine echte App die Credits nutzen. Spätestens vor dem ersten echten Verkauf.
+
+## 9. Neue Version veröffentlichen
+
+1. In `pubspec.yaml` die Version erhöhen, z. B. `1.1.1+3`. Die Zahl hinter `+` muss bei jedem Upload steigen.
 2. `flutter build appbundle --release`
 3. In der Play Console einen neuen Release mit dem neuen Bundle anlegen.

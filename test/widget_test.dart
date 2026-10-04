@@ -1,7 +1,40 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:in_app_purchase/in_app_purchase.dart' show ProductDetails;
 import 'package:promptplay/main.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+/// Shop-Attrappe: Ein Kauf schreibt sofort 20 Credits gut.
+class FakeShop implements CreditShop {
+  FakeShop(this.product);
+
+  final ProductDetails? product;
+  final _events = StreamController<StoreEvent>.broadcast();
+  int purchases = 0;
+
+  @override
+  Stream<StoreEvent> get events => _events.stream;
+
+  @override
+  Future<ProductDetails?> loadProduct() async => product;
+
+  @override
+  Future<void> buy(ProductDetails product) async {
+    purchases++;
+    _events.add(const StoreEvent(StoreEventType.credited, added: 20));
+  }
+}
+
+final credits20 = ProductDetails(
+  id: 'credits_20',
+  title: '20 Spiele-Credits',
+  description: '20 Credits',
+  price: '1,99 €',
+  rawPrice: 1.99,
+  currencyCode: 'EUR',
+);
 
 void main() {
   group('HtmlCleaner', () {
@@ -119,6 +152,44 @@ void main() {
     expect(find.text('Noch keine Projekte'), findsOneWidget);
     expect(find.text('API-Key fehlt'), findsOneWidget);
     expect(find.byIcon(Icons.add), findsOneWidget);
+  });
+
+  testWidgets('Credit-Shop zeigt Guthaben und Preis und schreibt Kauf gut',
+      (tester) async {
+    final shop = FakeShop(credits20);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CreditStoreSheet(shop: shop, credits: Stream.value(0)),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Dein Guthaben: ⚡ 0 Credits'), findsOneWidget);
+    expect(find.text('20 Spiele-Credits'), findsOneWidget);
+    expect(find.text('Jetzt kaufen – 1,99 €'), findsOneWidget);
+
+    await tester.tap(find.text('Jetzt kaufen – 1,99 €'));
+    await tester.pumpAndSettle();
+
+    expect(shop.purchases, 1);
+    expect(find.text('20 Credits gutgeschrieben – viel Spaß!'), findsOneWidget);
+  });
+
+  testWidgets('Credit-Shop meldet, wenn kein Produkt verfügbar ist',
+      (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CreditStoreSheet(shop: FakeShop(null), credits: Stream.value(5)),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Der Shop ist gerade nicht verfügbar'), findsOneWidget);
+    expect(find.textContaining('Jetzt kaufen'), findsNothing);
   });
 
   testWidgets('Meldedialog verlangt einen Grund und liefert ihn mit Details',

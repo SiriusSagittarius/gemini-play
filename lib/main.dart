@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart' show FirebaseFirestore;
 import 'package:cloud_functions/cloud_functions.dart'
     show FirebaseFunctions, FirebaseFunctionsException, HttpsCallableOptions;
+import 'package:crypto/crypto.dart' show sha256;
 import 'package:firebase_auth/firebase_auth.dart' show FirebaseAuth;
 import 'package:firebase_core/firebase_core.dart' show Firebase;
 import 'package:flutter/foundation.dart';
@@ -12,6 +13,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:http/http.dart' as http;
+import 'package:in_app_purchase/in_app_purchase.dart'
+    show
+        InAppPurchase,
+        ProductDetails,
+        PurchaseDetails,
+        PurchaseParam,
+        PurchaseStatus;
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart' show LaunchMode, launchUrl;
@@ -25,7 +33,10 @@ Future<void> main() async {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
-    cloudService = CloudService();
+    final cloud = cloudService = CloudService();
+    final store = CreditStore(cloud);
+    creditShop = store;
+    unawaited(store.start());
   } catch (e) {
     debugPrint('Firebase nicht verfügbar, nur eigene API-Keys möglich: $e');
   }
@@ -725,7 +736,15 @@ CloudService? cloudService;
 
 class NoCreditsException extends AiException {
   const NoCreditsException()
-      : super('Deine Gratis-Credits sind aufgebraucht.');
+      : super('Keine Credits mehr – bitte im Shop aufladen.');
+}
+
+class PurchasePendingException extends AiException {
+  const PurchasePendingException()
+      : super(
+          'Die Zahlung ist noch nicht abgeschlossen. Die Credits werden '
+          'gutgeschrieben, sobald Google Play sie bestätigt.',
+        );
 }
 
 class CloudService {
@@ -816,12 +835,374 @@ class CloudService {
     }
   }
 
+  /// Anonymisierte Kontokennung für Google Play (SHA-256 der UID). Der Server
+  /// prüft damit, dass ein Kaufbeleg zu diesem Konto gehört.
+  String? get purchaseAccountId {
+    final uid = _auth.currentUser?.uid;
+    return uid == null ? null : sha256.convert(utf8.encode(uid)).toString();
+  }
+
+  /// Lässt einen Google-Play-Kauf auf dem Server prüfen und gutschreiben.
+  /// Liefert die neu gutgeschriebenen Credits (0, wenn schon erledigt).
+  Future<int> verifyPurchase(String productId, String purchaseToken) async {
+    try {
+      await ensureReady();
+      final result = await _functions.httpsCallable('verifyPurchase').call<Object?>({
+        'productId': productId,
+        'purchaseToken': purchaseToken,
+      });
+      final data = Map<String, dynamic>.from(result.data as Map);
+      return (data['added'] as num?)?.toInt() ?? 0;
+    } on FirebaseFunctionsException catch (e) {
+      final details = e.details;
+      if (details is Map && details['pending'] == true) {
+        throw const PurchasePendingException();
+      }
+      throw AiException(e.message ?? 'Der Kauf konnte nicht geprüft werden.');
+    } catch (e) {
+      debugPrint('Kaufprüfung fehlgeschlagen: $e');
+      throw const AiException(
+        'Der Kauf konnte gerade nicht geprüft werden. Deine Credits werden '
+        'beim nächsten Start der App gutgeschrieben.',
+      );
+    }
+  }
+
   /// Löscht Credits-Profil und anonymes Konto auf dem Server.
   Future<void> deleteAccount() async {
     if (_auth.currentUser == null) return;
     await _functions.httpsCallable('deleteAccount').call<Object?>();
     await _auth.signOut();
     _ready = null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Credit-Shop (Google Play Billing)
+// ---------------------------------------------------------------------------
+
+enum StoreEventType { credited, pending, canceled, error }
+
+class StoreEvent {
+  const StoreEvent(this.type, {this.message, this.added = 0});
+
+  final StoreEventType type;
+  final String? message;
+  final int added;
+}
+
+/// Was der Shop-Bildschirm vom Shop braucht (in Tests durch eine Attrappe
+/// ersetzbar).
+abstract class CreditShop {
+  Stream<StoreEvent> get events;
+  Future<ProductDetails?> loadProduct();
+  Future<void> buy(ProductDetails product);
+}
+
+/// `null`, wenn Firebase nicht verfügbar ist (oder in Tests).
+CreditShop? creditShop;
+
+class CreditStore implements CreditShop {
+  CreditStore(this._cloud);
+
+  /// Muss in der Play Console als In-App-Produkt angelegt sein.
+  static const productId = 'credits_20';
+
+  final CloudService _cloud;
+  final _iap = InAppPurchase.instance;
+  final _events = StreamController<StoreEvent>.broadcast();
+  StreamSubscription<List<PurchaseDetails>>? _subscription;
+
+  @override
+  Stream<StoreEvent> get events => _events.stream;
+
+  /// Einmal beim App-Start: Kauf-Updates empfangen und Käufe, deren Gutschrift
+  /// noch aussteht (z. B. nach einem Verbindungsabbruch), erneut zustellen lassen.
+  Future<void> start() async {
+    _subscription ??= _iap.purchaseStream.listen(
+      _onPurchases,
+      onError: (Object e) => _events.add(
+        StoreEvent(StoreEventType.error, message: 'Der Kauf ist fehlgeschlagen: $e'),
+      ),
+    );
+    try {
+      if (await _iap.isAvailable()) await _iap.restorePurchases();
+    } catch (e) {
+      debugPrint('Offene Käufe konnten nicht abgefragt werden: $e');
+    }
+  }
+
+  @override
+  Future<ProductDetails?> loadProduct() async {
+    if (!await _iap.isAvailable()) return null;
+    final response = await _iap.queryProductDetails({productId});
+    return response.productDetails.isEmpty
+        ? null
+        : response.productDetails.first;
+  }
+
+  @override
+  Future<void> buy(ProductDetails product) async {
+    try {
+      await _cloud.ensureReady();
+    } catch (_) {
+      throw const AiException(
+        'Keine Verbindung zum PromptPlay-Server. Bitte prüfe deine '
+        'Internetverbindung.',
+      );
+    }
+    final started = await _iap.buyConsumable(
+      purchaseParam: PurchaseParam(
+        productDetails: product,
+        applicationUserName: _cloud.purchaseAccountId,
+      ),
+      // Verbraucht wird auf dem Server – erst nach der Gutschrift.
+      autoConsume: false,
+    );
+    if (!started) {
+      throw const AiException('Der Kauf konnte nicht gestartet werden.');
+    }
+  }
+
+  Future<void> _onPurchases(List<PurchaseDetails> purchases) async {
+    for (final purchase in purchases) {
+      switch (purchase.status) {
+        case PurchaseStatus.pending:
+          _events.add(const StoreEvent(StoreEventType.pending));
+        case PurchaseStatus.purchased:
+        case PurchaseStatus.restored:
+          await _deliver(purchase);
+        case PurchaseStatus.canceled:
+          _events.add(const StoreEvent(StoreEventType.canceled));
+          await _complete(purchase);
+        case PurchaseStatus.error:
+          _events.add(
+            StoreEvent(
+              StoreEventType.error,
+              message: purchase.error?.message ?? 'Der Kauf ist fehlgeschlagen.',
+            ),
+          );
+          await _complete(purchase);
+      }
+    }
+  }
+
+  Future<void> _deliver(PurchaseDetails purchase) async {
+    try {
+      final added = await _cloud.verifyPurchase(
+        purchase.productID,
+        purchase.verificationData.serverVerificationData,
+      );
+      if (added > 0) {
+        _events.add(StoreEvent(StoreEventType.credited, added: added));
+      }
+    } on PurchasePendingException {
+      _events.add(const StoreEvent(StoreEventType.pending));
+      return;
+    } on AiException catch (e) {
+      // Nicht abschließen: Google Play stellt den Kauf erneut zu, bis die
+      // Gutschrift geklappt hat.
+      _events.add(StoreEvent(StoreEventType.error, message: e.message));
+      return;
+    }
+    await _complete(purchase);
+  }
+
+  Future<void> _complete(PurchaseDetails purchase) async {
+    if (!purchase.pendingCompletePurchase) return;
+    try {
+      await _iap.completePurchase(purchase);
+    } catch (e) {
+      debugPrint('Kauf konnte nicht abgeschlossen werden: $e');
+    }
+  }
+}
+
+/// Öffnet den Credit-Shop als Bottom Sheet.
+Future<void> showCreditStore(BuildContext context) async {
+  final shop = creditShop;
+  final cloud = cloudService;
+  if (shop == null || cloud == null) {
+    showMessage(context, 'Der Shop ist gerade nicht verfügbar.');
+    return;
+  }
+  final openKeySettings = await showModalBottomSheet<bool>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (_) => CreditStoreSheet(shop: shop, credits: cloud.credits()),
+  );
+  if (openKeySettings == true && context.mounted) await openSettings(context);
+}
+
+class CreditStoreSheet extends StatefulWidget {
+  const CreditStoreSheet({super.key, required this.shop, required this.credits});
+
+  final CreditShop shop;
+  final Stream<int?> credits;
+
+  @override
+  State<CreditStoreSheet> createState() => _CreditStoreSheetState();
+}
+
+class _CreditStoreSheetState extends State<CreditStoreSheet> {
+  StreamSubscription<StoreEvent>? _eventsSubscription;
+  ProductDetails? _product;
+  bool _loadingProduct = true;
+  bool _buying = false;
+  String? _status;
+  bool _statusIsError = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _eventsSubscription = widget.shop.events.listen(_onEvent);
+    _loadProduct();
+  }
+
+  @override
+  void dispose() {
+    _eventsSubscription?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadProduct() async {
+    ProductDetails? product;
+    try {
+      product = await widget.shop.loadProduct();
+    } catch (e) {
+      debugPrint('Produkt konnte nicht geladen werden: $e');
+    }
+    if (!mounted) return;
+    setState(() {
+      _product = product;
+      _loadingProduct = false;
+    });
+  }
+
+  void _onEvent(StoreEvent event) {
+    if (!mounted) return;
+    setState(() {
+      _buying = false;
+      switch (event.type) {
+        case StoreEventType.credited:
+          _status = '${event.added} Credits gutgeschrieben – viel Spaß!';
+          _statusIsError = false;
+        case StoreEventType.pending:
+          _status = 'Zahlung ausstehend. Die Credits werden gutgeschrieben, '
+              'sobald Google Play sie bestätigt.';
+          _statusIsError = false;
+        case StoreEventType.canceled:
+          _status = null;
+        case StoreEventType.error:
+          _status = event.message ?? 'Der Kauf ist fehlgeschlagen.';
+          _statusIsError = true;
+      }
+    });
+  }
+
+  Future<void> _buy(ProductDetails product) async {
+    setState(() {
+      _buying = true;
+      _status = null;
+    });
+    try {
+      await widget.shop.buy(product);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _buying = false;
+        _status = e is AiException
+            ? e.message
+            : 'Der Kauf konnte nicht gestartet werden.';
+        _statusIsError = true;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final product = _product;
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('Credit-Shop', style: theme.textTheme.headlineSmall),
+            const SizedBox(height: 4),
+            StreamBuilder<int?>(
+              stream: widget.credits,
+              builder: (context, snapshot) => Text(
+                snapshot.data == null
+                    ? 'Guthaben wird geladen …'
+                    : 'Dein Guthaben: ⚡ ${snapshot.data} Credits',
+                style: theme.textTheme.titleMedium,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Card(
+              child: ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: colors.primaryContainer,
+                  child: const Text('⚡'),
+                ),
+                title: const Text('20 Spiele-Credits'),
+                subtitle: const Text('1 Credit = 1 neues Spiel oder eine Mini-App'),
+                trailing: product == null
+                    ? null
+                    : Text(product.price, style: theme.textTheme.titleMedium),
+              ),
+            ),
+            const SizedBox(height: 16),
+            if (_loadingProduct)
+              const Center(child: CircularProgressIndicator())
+            else if (product == null)
+              Text(
+                'Der Shop ist gerade nicht verfügbar. Käufe funktionieren nur '
+                'in der App aus dem Google Play Store.',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodyMedium,
+              )
+            else
+              FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(52),
+                ),
+                onPressed: _buying ? null : () => _buy(product),
+                icon: _buying
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.shopping_cart_outlined),
+                label: Text(
+                  _buying ? 'Kauf läuft …' : 'Jetzt kaufen – ${product.price}',
+                ),
+              ),
+            if (_status != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                _status!,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: _statusIsError ? colors.error : colors.primary,
+                ),
+              ),
+            ],
+            const SizedBox(height: 8),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Lieber eigenen API-Key nutzen (unbegrenzt)'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -1420,31 +1801,9 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _showCreditsInfo() async {
-    final openKeySettings = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Gratis-Credits'),
-        content: Text(
-          'Ohne eigenen API-Key erstellt PromptPlay deine Apps über den '
-          'PromptPlay-Server. Jede Erstellung kostet 1 Credit; schlägt sie '
-          'fehl, bekommst du ihn zurück.\n\n'
-          'Du hast noch ${_credits ?? 0} Credits. Mit einem eigenen '
-          'kostenlosen API-Key erstellst du unbegrenzt.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Eigenen Key eintragen'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-    if (openKeySettings == true && mounted) await _openSettings();
+  Future<void> _openShop() async {
+    await showCreditStore(context);
+    await _refresh();
   }
 
   Future<void> _refresh() async {
@@ -1519,8 +1878,9 @@ class _HomeScreenState extends State<HomeScreen> {
             Padding(
               padding: const EdgeInsets.only(right: 4),
               child: ActionChip(
+                tooltip: 'Credit-Shop',
                 label: Text('⚡ $_credits Credits'),
-                onPressed: _showCreditsInfo,
+                onPressed: _openShop,
               ),
             ),
           IconButton(
@@ -1560,24 +1920,52 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildApiKeyBanner(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final hasShop = cloudService != null;
     return Card(
       color: colors.tertiaryContainer,
-      child: ListTile(
-        leading: Icon(Icons.key, color: colors.onTertiaryContainer),
-        title: Text(
-          cloudService == null ? 'API-Key fehlt' : 'Gratis-Credits aufgebraucht',
-        ),
-        subtitle: Text(
-          cloudService == null
-              ? 'Hinterlege deinen ${_provider.label}-API-Key, um Apps zu '
-                  'generieren.'
-              : 'Trage einen eigenen kostenlosen ${_provider.label}-API-Key '
-                  'ein, um weiter Apps zu erstellen.',
-        ),
-        trailing: TextButton(
-          onPressed: _openSettings,
-          child: const Text('Eintragen'),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.key, color: colors.onTertiaryContainer),
+                const SizedBox(width: 12),
+                Text(
+                  hasShop ? 'Keine Credits mehr' : 'API-Key fehlt',
+                  style: theme.textTheme.titleMedium,
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              hasShop
+                  ? 'Lade im Shop neue Credits auf oder trage einen eigenen '
+                      'kostenlosen ${_provider.label}-API-Key ein.'
+                  : 'Hinterlege deinen ${_provider.label}-API-Key, um Apps zu '
+                      'generieren.',
+            ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: OverflowBar(
+                spacing: 8,
+                children: [
+                  TextButton(
+                    onPressed: _openSettings,
+                    child: Text(hasShop ? 'Eigener Key' : 'Eintragen'),
+                  ),
+                  if (hasShop)
+                    FilledButton(
+                      onPressed: _openShop,
+                      child: const Text('Zum Shop'),
+                    ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -1707,7 +2095,8 @@ class _CreateScreenState extends State<CreateScreen> {
   ];
 
   final _promptController = TextEditingController();
-  late final Stream<int?>? _credits = cloudService?.credits();
+  StreamSubscription<int?>? _creditsSubscription;
+  int? _credits;
   AiService? _service;
   AiProvider? _provider;
   String? _model;
@@ -1723,14 +2112,26 @@ class _CreateScreenState extends State<CreateScreen> {
   void initState() {
     super.initState();
     _loadProviderInfo();
+    _creditsSubscription = cloudService?.credits().listen(
+      (credits) {
+        if (mounted) setState(() => _credits = credits);
+      },
+      onError: (Object e) => debugPrint('Credits nicht lesbar: $e'),
+    );
   }
 
   @override
   void dispose() {
     _timer?.cancel();
     _service?.close();
+    _creditsSubscription?.cancel();
     _promptController.dispose();
     super.dispose();
+  }
+
+  Future<void> _openShop() async {
+    await showCreditStore(context);
+    await _loadProviderInfo();
   }
 
   Future<void> _loadProviderInfo() async {
@@ -1782,6 +2183,13 @@ class _CreateScreenState extends State<CreateScreen> {
     final model = await AppStore.getModel(provider);
     final cloud = apiKey.isEmpty ? cloudService : null;
     if (!mounted) return;
+
+    // Ohne eigenen Key und ohne Guthaben direkt in den Shop.
+    if (cloud != null && _credits == 0) {
+      setState(() => _outOfCredits = true);
+      await _openShop();
+      return;
+    }
 
     final runId = ++_runId;
     final service = cloud == null ? provider.createService() : null;
@@ -1838,6 +2246,7 @@ class _CreateScreenState extends State<CreateScreen> {
         _loading = false;
         _outOfCredits = true;
       });
+      await _openShop();
     } catch (e) {
       if (runId != _runId) return;
       _stopTimer();
@@ -1851,24 +2260,6 @@ class _CreateScreenState extends State<CreateScreen> {
       if (identical(_service, service)) _service = null;
     }
   }
-
-  Future<void> _showBuyCredits() => showDialog<void>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('Credits nachkaufen'),
-          content: const Text(
-            'Der Kauf von Credits ist in Vorbereitung und kommt mit einem '
-            'späteren Update. Bis dahin erstellst du mit einem eigenen '
-            'kostenlosen API-Key unbegrenzt weiter.',
-          ),
-          actions: [
-            FilledButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('OK'),
-            ),
-          ],
-        ),
-      );
 
   void _stopTimer() {
     _timer?.cancel();
@@ -1989,7 +2380,7 @@ class _CreateScreenState extends State<CreateScreen> {
                   icon: const Icon(Icons.auto_awesome),
                   label: const Text('Erstellen'),
                 ),
-              if (_outOfCredits) ...[
+              if (_usesCloud && _outOfCredits && (_credits ?? 0) == 0) ...[
                 const SizedBox(height: 16),
                 _buildNoCreditsCard(theme),
               ],
@@ -2005,30 +2396,29 @@ class _CreateScreenState extends State<CreateScreen> {
   }
 
   Widget _buildCloudInfo(ThemeData theme) {
-    return StreamBuilder<int?>(
-      stream: _credits,
-      builder: (context, snapshot) {
-        final credits = snapshot.data;
-        return Row(
-          children: [
-            Icon(Icons.cloud_outlined, size: 18, color: theme.colorScheme.primary),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                credits == null
-                    ? CloudService.label
-                    : '${CloudService.label} · ⚡ $credits Credits',
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodyMedium,
-              ),
-            ),
-            TextButton(
-              onPressed: _loading ? null : _changeSettings,
-              child: const Text('Eigener Key'),
-            ),
-          ],
-        );
-      },
+    final credits = _credits;
+    return Row(
+      children: [
+        Icon(Icons.cloud_outlined, size: 18, color: theme.colorScheme.primary),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            credits == null
+                ? CloudService.label
+                : '${CloudService.label} · ⚡ $credits Credits',
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodyMedium,
+          ),
+        ),
+        TextButton(
+          onPressed: _loading ? null : _openShop,
+          child: const Text('Shop'),
+        ),
+        TextButton(
+          onPressed: _loading ? null : _changeSettings,
+          child: const Text('Eigener Key'),
+        ),
+      ],
     );
   }
 
@@ -2042,27 +2432,27 @@ class _CreateScreenState extends State<CreateScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              'Deine Gratis-Credits sind aufgebraucht',
+              'Keine Credits mehr',
               style: theme.textTheme.titleMedium
                   ?.copyWith(color: colors.onTertiaryContainer),
             ),
             const SizedBox(height: 8),
             Text(
-              'Mit einem eigenen kostenlosen API-Key (Gemini oder Groq) '
-              'erstellst du unbegrenzt weiter.',
+              'Lade im Shop 20 neue Credits auf – oder erstelle mit einem '
+              'eigenen kostenlosen API-Key (Gemini oder Groq) unbegrenzt weiter.',
               style: TextStyle(color: colors.onTertiaryContainer),
             ),
             const SizedBox(height: 16),
             FilledButton.icon(
-              onPressed: _changeSettings,
-              icon: const Icon(Icons.key),
-              label: const Text('Eigenen API-Key eintragen'),
+              onPressed: _openShop,
+              icon: const Icon(Icons.shopping_cart_outlined),
+              label: const Text('Credits kaufen'),
             ),
             const SizedBox(height: 8),
             OutlinedButton.icon(
-              onPressed: _showBuyCredits,
-              icon: const Icon(Icons.shopping_cart_outlined),
-              label: const Text('Credits nachkaufen'),
+              onPressed: _changeSettings,
+              icon: const Icon(Icons.key),
+              label: const Text('Eigenen API-Key eintragen'),
             ),
           ],
         ),
