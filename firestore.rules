@@ -1,0 +1,21 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Credits: Nutzer dürfen nur ihr eigenes Dokument lesen.
+    // Geschrieben wird ausschließlich von den Cloud Functions (Admin SDK umgeht
+    // diese Regeln), damit niemand sein Guthaben im Client manipulieren kann.
+    match /users/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if false;
+    }
+
+    // Alles andere ist gesperrt, auch `reports` (Meldungen zu KI-Inhalten):
+    // Sie werden nur von der Function reportContent geschrieben und in der
+    // Firebase-Konsole gesichtet.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,28 @@
+name: promptplay
+description: "PromptPlay – AI Mini-App & Game Creator"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.5.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_inappwebview: ^6.1.5
+  http: ^1.2.2
+  shared_preferences: ^2.3.2
+  share_plus: ^10.1.2
+  url_launcher: ^6.3.1
+  firebase_core: ^4.15.0
+  firebase_auth: ^6.7.0
+  cloud_firestore: ^6.10.0
+  cloud_functions: ^6.5.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true

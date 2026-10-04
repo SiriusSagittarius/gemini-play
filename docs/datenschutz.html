@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Datenschutzerklärung – PromptPlay</title>
+<style>
+  :root { --bg: #ffffff; --fg: #1d1b20; --muted: #5f5a66; --accent: #5b3fd1; --mark: #fff3c4; --line: #e6e0ee; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #141218; --fg: #e6e0e9; --muted: #b3acbb; --accent: #b39dff; --mark: #4d3d00; --line: #2e2a35; }
+  }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 1.8rem; line-height: 1.25; margin: 0 0 4px; }
+  h2 { font-size: 1.2rem; margin: 32px 0 8px; padding-top: 16px; border-top: 1px solid var(--line); }
+  a { color: var(--accent); }
+  .muted { color: var(--muted); }
+  mark { background: var(--mark); color: inherit; padding: 0 4px; border-radius: 4px; }
+  ul { padding-left: 20px; }
+</style>
+</head>
+<body>
+<main>
+<h1>Datenschutzerklärung für die App „PromptPlay“</h1>
+<p class="muted">Stand: 4. Oktober 2026</p>
+
+<h2 id="verantwortlicher">1. Verantwortlicher</h2>
+<p>
+  <mark>[Vor- und Nachname]</mark><br>
+  <mark>[Straße und Hausnummer]</mark><br>
+  <mark>[PLZ und Ort, Land]</mark><br>
+  E-Mail: <mark>[E-Mail-Adresse]</mark>
+</p>
+
+<h2 id="ueberblick">2. Überblick</h2>
+<p>PromptPlay erstellt aus deinen Texteingaben („Prompts“) mithilfe künstlicher Intelligenz kleine Spiele und Web-Apps. Die App zeigt keine Werbung und verwendet keine Analyse- oder Tracking-Dienste.</p>
+
+<h2 id="lokal">3. Daten, die nur auf deinem Gerät bleiben</h2>
+<p>Deine Projekte (Prompts, Titel, generierter Code), deine API-Keys und deine Einstellungen werden ausschließlich lokal auf deinem Gerät gespeichert und nicht an uns übertragen. Sie werden gelöscht, wenn du ein Projekt in der App löschst oder die App deinstallierst.</p>
+
+<h2 id="eigener-key">4. Generierung mit eigenem API-Key</h2>
+<p>Hinterlegst du einen eigenen API-Key, sendet die App deinen Prompt direkt an den gewählten Anbieter. Wir erhalten diese Daten nicht. Es gelten die Bedingungen und Datenschutzhinweise des Anbieters, bei dem du den Key erstellt hast:</p>
+<ul>
+  <li>Google Gemini API (Google Ireland Limited / Google LLC): <a href="https://ai.google.dev/gemini-api/terms">Nutzungsbedingungen</a>, <a href="https://policies.google.com/privacy">Datenschutzerklärung</a></li>
+  <li>Groq (Groq, Inc., USA): <a href="https://groq.com/privacy-policy">Datenschutzerklärung</a></li>
+</ul>
+
+<h2 id="cloud">5. Generierung über PromptPlay Cloud (Gratis-Credits)</h2>
+<p>Ohne eigenen API-Key nutzt die App unseren Server, der auf Google Firebase und Google Cloud (Region Frankfurt) betrieben wird.</p>
+<ul>
+  <li><strong>Anonymes Konto:</strong> Firebase Authentication erzeugt eine zufällige, anonyme Nutzerkennung. Name, E-Mail-Adresse oder Telefonnummer werden nicht erhoben. Zu dieser Kennung speichern wir in Cloud Firestore deinen Credit-Stand, den Zeitpunkt der Anlage und den Zeitpunkt der letzten Generierung. Zweck ist die Bereitstellung des Credit-Systems und der Schutz vor Missbrauch (Art. 6 Abs. 1 lit. b DSGVO).</li>
+  <li><strong>Prompts und Ergebnisse:</strong> Dein Prompt wird an unsere Cloud Function und von dort an die Google Gemini API übermittelt. Der generierte Code wird an die App zurückgegeben. Prompt und Ergebnis speichern wir auf unserem Server nicht. Google verarbeitet die übermittelten Inhalte nach den <a href="https://ai.google.dev/gemini-api/terms">Gemini-API-Bedingungen</a>; bei unentgeltlicher Nutzung der Gemini API kann Google Inhalte auch zur Verbesserung seiner Produkte verwenden. Bitte gib deshalb keine personenbezogenen oder vertraulichen Daten in Prompts ein.</li>
+  <li><strong>Technische Protokolle:</strong> Beim Aufruf unseres Servers verarbeitet Google Cloud technische Daten wie IP-Adresse und Zeitpunkt in Server-Protokollen, um einen sicheren Betrieb zu gewährleisten (Art. 6 Abs. 1 lit. f DSGVO). Diese Protokolle werden nach den Standardfristen von Google Cloud Logging gelöscht (in der Regel nach 30 Tagen).</li>
+</ul>
+<p>Google Ireland Limited ist hierbei als Auftragsverarbeiter tätig (<a href="https://firebase.google.com/support/privacy">Datenschutz bei Firebase</a>). Eine Übermittlung in die USA ist möglich; sie erfolgt auf Grundlage des EU-US Data Privacy Framework bzw. von Standardvertragsklauseln.</p>
+
+<h2 id="meldungen">6. Meldungen von Inhalten</h2>
+<p>Über „Inhalt melden“ im Player kannst du KI-generierte Apps melden. Dabei übermitteln wir den gewählten Grund, deine optionale Beschreibung, Titel, Prompt und Code der App sowie deine anonyme Nutzerkennung und speichern sie in Cloud Firestore. Zweck ist die Prüfung gemeldeter Inhalte und die Verbesserung unserer Inhaltsfilter (Art. 6 Abs. 1 lit. f DSGVO). Meldungen werden nach der Bearbeitung, spätestens nach 12 Monaten gelöscht. Löschst du dein Cloud-Konto, entfernen wir deine Nutzerkennung aus deinen Meldungen.</p>
+
+<h2 id="teilen">7. Teilen</h2>
+<p>„Teilen“ übergibt den HTML-Code einer App an die Teilen-Funktion von Android. Was danach mit den Daten geschieht, bestimmt die App, die du dafür auswählst.</p>
+
+<h2 id="loeschung">8. Speicherdauer und Löschung</h2>
+<ul>
+  <li><strong>Cloud-Konto und Credits:</strong> gespeichert, bis du sie löschst. Das geht jederzeit in der App unter <em>Einstellungen → Datenschutz &amp; Konto → „Cloud-Konto &amp; Credits löschen“</em>. Dabei werden dein Credit-Profil und dein anonymes Konto sofort und endgültig gelöscht. Alternativ kannst du die Löschung per E-Mail an den oben genannten Verantwortlichen anfordern.</li>
+  <li><strong>Daten auf deinem Gerät:</strong> bis du sie in der App löschst oder die App deinstallierst.</li>
+</ul>
+
+<h2 id="rechte">9. Deine Rechte</h2>
+<p>Du hast das Recht auf Auskunft (Art. 15 DSGVO), Berichtigung (Art. 16), Löschung (Art. 17), Einschränkung der Verarbeitung (Art. 18), Datenübertragbarkeit (Art. 20) und Widerspruch (Art. 21). Außerdem kannst du dich bei einer Datenschutz-Aufsichtsbehörde beschweren (Art. 77 DSGVO).</p>
+
+<h2 id="kinder">10. Kinder</h2>
+<p>PromptPlay richtet sich nicht an Kinder unter 16 Jahren.</p>
+
+<h2 id="aenderungen">11. Änderungen</h2>
+<p>Wir passen diese Datenschutzerklärung an, wenn sich die App oder die rechtlichen Anforderungen ändern. Es gilt die jeweils hier veröffentlichte Fassung.</p>
+</main>
+</body>
+</html>
