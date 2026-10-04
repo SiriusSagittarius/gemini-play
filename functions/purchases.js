@@ -13,7 +13,7 @@ const { androidpublisher, auth } = require("@googleapis/androidpublisher");
 const PACKAGE_NAME = "com.promptplay.promptplay";
 
 /** Produkt-ID aus der Play Console → Anzahl gutgeschriebener Credits. */
-const PRODUCTS = { credits_20: 20 };
+const PRODUCTS = { credits_10: 10, credits_30: 30, credits_70: 70 };
 
 let client;
 function playClient() {
@@ -79,6 +79,7 @@ async function consumePurchase(productId, purchaseToken) {
 
 module.exports = {
   PRODUCTS,
+  sha256,
   accountIdFor,
   purchaseDocId,
   checkPurchase,

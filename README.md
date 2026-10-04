@@ -8,8 +8,13 @@ KI-Generator für Mini-Apps und Spiele auf Android. Du beschreibst eine Idee, ei
 
 - **Zwei Wege zur Generierung**
   - **Eigener API-Key** für Google Gemini oder Groq: unbegrenzt, direkt vom Gerät aus.
-  - **PromptPlay Cloud**: 2 Gratis-Credits ohne Registrierung, weitere Credits im Shop (Google Play Billing). Die Generierung läuft über eine Firebase Cloud Function.
-- **Projektliste** mit Öffnen, Teilen und Löschen.
+  - **PromptPlay Cloud**: 2 Gratis-Credits nach der Google-Anmeldung (einmalig pro Google-Konto), weitere Credits im Shop (Google Play Billing). Die Generierung läuft über eine Firebase Cloud Function.
+- **Größe wählen:** Klein, Mittel, Groß (1, 2 bzw. 3 Credits).
+- **Weiterbauen:** Spiele über Tage und Wochen erweitern; jede Änderung wird als Version gespeichert und lässt sich wiederherstellen.
+- **Eigene Grafiken:** bis zu 6 Bilder pro Spiel. Das funktioniert nur mit Gemini, nicht mit Groq.
+- **Google-Anmeldung**, damit gekaufte Credits erhalten bleiben.
+- **Fortschrittsanzeige mit Restzeit** und **Hilfe-Seite** mit Beispielen.
+- **Projektliste** mit Öffnen, Weiterbauen, Teilen und Löschen.
 - **Player:** WebView mit Touch-Steuerung und Vollbild-Modus.
 - **Play-Store-konform:**
   - Inhalte melden

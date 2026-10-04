@@ -8,7 +8,7 @@ Diese Datei enthält alles, was du in der [Play Console](https://play.google.com
 - [ ] **Screenshots machen:** mindestens 2 Handy-Screenshots, z. B. Projektliste, Erstellen-Bildschirm, laufendes Spiel.
 - [ ] **Upload-Schlüssel sichern:** `android/app/upload-keystore.jks` sowie Alias und Passwort aus `android/key.properties` an zwei getrennten Orten sichern, z. B. Datei im Cloud-Speicher und Passwort im Passwort-Manager. Beides ist absichtlich nicht im Repository.
 
-## 2. Technische Anforderungen (Stand: Version 1.1.0)
+## 2. Technische Anforderungen (Stand: Version 1.2.0)
 
 | Anforderung | Stand |
 |---|---|
@@ -20,7 +20,8 @@ Diese Datei enthält alles, was du in der [Play Console](https://play.google.com
 | Datenschutzerklärung in App und Store | ✅ Einstellungen → „Datenschutzerklärung“ |
 | Konto- und Datenlöschung in der App | ✅ Einstellungen → „Cloud-Konto & Credits löschen“ |
 | Keine Werbung, kein Tracking | ✅ |
-| Käufe nur über Google Play Billing | ✅ Credit-Shop mit Produkt `credits_20`, Prüfung auf dem Server |
+| Käufe nur über Google Play Billing | ✅ Credit-Shop mit `credits_10`, `credits_30`, `credits_70`, Prüfung auf dem Server |
+| Bildauswahl ohne Speicher-Berechtigung | ✅ Android-Fotoauswahl (keine Berechtigung für alle Fotos nötig) |
 | Berechtigungen | nur normale Berechtigungen (Internet, Google Play Billing; Firebase ergänzt Netzwerkstatus, Wake-Lock, Cloud Messaging) |
 
 ## 3. App anlegen
@@ -39,7 +40,7 @@ Diese Datei enthält alles, was du in der [Play Console](https://play.google.com
 
 **Vollständige Beschreibung:**
 
-> Vibe Coding für dein Handy: PromptPlay verwandelt deine Ideen in spielbare Mini-Apps – ganz ohne Programmierkenntnisse. Beschreibe einfach, was du möchtest – zum Beispiel „Baue mir ein Tetris für Touchscreens“ oder „Erstelle ein Quiz mit 10 Fragen über das Sonnensystem“ – und die KI erstellt daraus in Sekunden eine fertige App, die du sofort im Vollbild spielen kannst.
+> Vibe Coding für dein Handy: PromptPlay verwandelt deine Ideen in spielbare Mini-Apps – ganz ohne Programmierkenntnisse. Beschreibe einfach, was du möchtest – zum Beispiel „Baue mir ein Tetris für Touchscreens“ oder „Erstelle mir ein Rennspiel“ – und die KI erstellt daraus in Sekunden eine fertige App, die du sofort im Vollbild spielen kannst.
 >
 > ★ So funktioniert's
 > • Idee eingeben oder ein Beispiel antippen
@@ -51,14 +52,23 @@ Diese Datei enthält alles, was du in der [Play Console](https://play.google.com
 > • Vollbild-Modus für ungestörtes Spielen
 > • Alle Projekte übersichtlich in deiner Bibliothek
 > • Teilen des HTML-Codes über den Android-Teilen-Dialog
-> • 2 Gratis-Credits zum Ausprobieren – ohne Registrierung
-> • Weitere Credits im Shop: 20 Credits für 1,99 €
+> • 2 Gratis-Credits nach Anmeldung mit Google
+> • Weitere Credits im Shop: 10 Credits für 1,99 €, 30 für 4,99 €, 70 für 9,99 €
+> • Größe wählen: Klein, Mittel oder Groß
+> • Weiterbauen: Spiele über Tage und Wochen erweitern, mit Versionen zum Zurückgehen
+> • Eigene Grafiken: deine Bilder als Spielfiguren oder Hintergrund
+> • Hilfe mit Schritt-für-Schritt-Beispielen
 > • Oder unbegrenzt erstellen mit einem eigenen kostenlosen API-Key von Google Gemini oder Groq
+>
+> ★ Für Familien
+> • Familien-Modus: Erstelle als Elternteil kindgerechte Spiele für deine Kinder – ohne Gewalt, ohne Gruseliges, mit einfacher Sprache und den strengsten Sicherheitsfiltern
+> • Kindgerechte Spiele bleiben es auch beim Weiterbauen
+> • Tipp: Schau dir jedes Spiel kurz selbst an, bevor du es deinem Kind gibst
 >
 > ★ Datenschutz
 > • Keine Werbung, kein Tracking
 > • Projekte und API-Keys bleiben auf deinem Gerät
-> • Anonymes Konto, jederzeit in der App löschbar
+> • Konto und Daten jederzeit in der App löschbar
 >
 > Hinweis: Die Inhalte werden von einer KI erzeugt und können Fehler enthalten. Unangemessene Inhalte meldest du direkt in der App über „Inhalt melden“.
 
@@ -76,8 +86,9 @@ Diese Datei enthält alles, was du in der [Play Console](https://play.google.com
 
 - **Datenschutzerklärung:** `https://siriussagittarius.github.io/gemini-play/datenschutz.html`
 - **Werbung:** Nein
-- **App-Zugriff:** Alle Funktionen ohne besondere Zugangsdaten verfügbar
-- **Zielgruppe:** 18 Jahre und älter. KI-Inhalte sind nicht vorhersagbar; so gelten die Zusatzregeln für Kinder-Apps nicht.
+- **Anmeldedaten (früher „App-Zugriff“):** „Ja“ → Anleitung ohne Nutzername/Passwort, Text:
+  `No login is needed to open the app. To create games, sign in with Google (Einstellungen > Konto): each Google account receives 2 free credits once. Credit purchases are optional.`
+- **Zielgruppe:** 18 Jahre und älter, auch mit Familien-Modus. Die App richtet sich an **Eltern**, die Spiele für ihre Kinder erstellen, nicht an Kinder selbst. Würde Google sie als Kinder-App einstufen, gälten die strengen Familien-Richtlinien, die eine KI-App mit Käufen kaum erfüllen kann. Deshalb im Store-Eintrag (Texte, Screenshots, Grafiken) **Erwachsene ansprechen** und keine Kinderfiguren oder Kinder-Ansprache („Hey Kids!“) verwenden.
 - **Einstufung (IARC-Fragebogen):** Die App selbst enthält keine Gewalt, Sexualität oder Glücksspiel. Wenn gefragt wird, ob Nutzer Inhalte erzeugen oder KI-Inhalte generiert werden: **Ja**. Nutzer können **nicht** miteinander kommunizieren, und es gibt **keine** Standortfreigabe. **Digitale Käufe: Ja.**
 - **Finanzfunktionen, Gesundheit, Behörden-App, Nachrichten-App:** Nein
 
@@ -93,6 +104,8 @@ Diese Datei enthält alles, was du in der [Play Console](https://play.google.com
 |---|---|---|---|---|
 | Personenbezogene Daten → Nutzer-IDs (anonyme Firebase-Kennung) | Ja | Nein | Nein | App-Funktionalität; Betrugsprävention, Sicherheit |
 | Finanzdaten → Kaufverlauf (gekaufte Credit-Pakete) | Ja | Nein | Ja | App-Funktionalität |
+| Personenbezogene Daten → E-Mail-Adresse, Name (nur bei Google-Anmeldung) | Ja | Nein | Ja | App-Funktionalität, Kontoverwaltung |
+| Fotos und Videos → Fotos (eigene Grafiken; nur zur Generierung übertragen, nicht gespeichert) | Ja | Nein | Ja | App-Funktionalität |
 | App-Aktivitäten → Andere nutzergenerierte Inhalte (Prompts, Meldungen) | Ja | Nein | Nein | App-Funktionalität |
 | Geräte- oder andere IDs (von Firebase-SDKs) | Ja | Nein | Nein | App-Funktionalität |
 
@@ -107,31 +120,39 @@ Google (Firebase, Gemini API, Google Play) handelt als Dienstleister. Das gilt n
 
 ## 7. Credit-Verkauf einrichten
 
-Die App bietet im Shop das Produkt `credits_20` an. Die Cloud Function `verifyPurchase` prüft jeden Kauf bei Google Play, schreibt 20 Credits genau einmal gut und verbraucht den Kauf danach, damit er erneut gekauft werden kann. Damit das funktioniert:
+Die App bietet im Shop drei Pakete an. Die Cloud Function `verifyPurchase` prüft jeden Kauf bei Google Play, schreibt die Credits genau einmal gut und verbraucht den Kauf danach, damit er erneut gekauft werden kann. Damit das funktioniert:
 
 1. **Zahlungsprofil anlegen:** Play Console → Einrichtung → Zahlungsprofil (Bankverbindung, Adresse).
 2. **Version mit Kauf-Funktion hochladen** (ab 1.1.0, siehe Abschnitt 6). Erst dann lassen sich In-App-Produkte anlegen.
-3. **Produkt anlegen:** App → Monetarisieren → Produkte → In-App-Produkte (Einmalkäufe) → „Produkt erstellen“
-   - Produkt-ID: `credits_20` (genau so, nicht mehr änderbar)
-   - Name: `20 Spiele-Credits`
-   - Beschreibung: `20 Credits für neue Spiele und Mini-Apps in PromptPlay`
-   - Preis: 1,99 € → speichern und **aktivieren**
+3. **Produkte anlegen:** App → Monetarisieren → Produkte → In-App-Produkte (Einmalkäufe) → „Produkt erstellen“. Die IDs genau so übernehmen, sie sind später nicht mehr änderbar. Jedes Produkt speichern und **aktivieren**.
+
+   | Produkt-ID | Name | Beschreibung | Preis |
+   |---|---|---|---|
+   | `credits_10` | 10 Credits | 10 Credits für neue Spiele und Mini-Apps | 1,99 € |
+   | `credits_30` | 30 Credits | 30 Credits für neue Spiele und Mini-Apps | 4,99 € |
+   | `credits_70` | 70 Credits | 70 Credits für neue Spiele und Mini-Apps | 9,99 € |
 4. **Google Play Android Developer API aktivieren:** Google Cloud Console des Firebase-Projekts → APIs & Dienste → Bibliothek → „Google Play Android Developer API“ → Aktivieren.
 5. **Server berechtigen:** Play Console → Nutzer und Berechtigungen → „Neue Nutzer einladen“ → E-Mail des Dienstkontos der Functions eintragen (Google Cloud Console → IAM → Dienstkonten → „Default compute service account“, endet auf `-compute@developer.gserviceaccount.com`) → bei der App die Berechtigungen **„Finanzdaten ansehen“** und **„Bestellungen und Abos verwalten“** vergeben.
 6. **Lizenztester eintragen:** Play Console → Einstellungen → Lizenztests → deine Test-E-Mail-Adressen. Diese Konten kaufen im Test, ohne belastet zu werden.
 7. **Vor echten Verkäufen:**
    - **Gemini-Key mit Abrechnung** auf dem Server hinterlegen (`functions:secrets:set GEMINI_API_KEY`). Die kostenlose Stufe reicht für zahlende Nutzer nicht.
-   - **Kosten durchrechnen:** 1,99 € abzüglich 15 % Google-Gebühr ergeben ca. 1,69 € für 20 Generierungen, also rund 8 Cent pro Spiel. Die Gemini-Kosten pro Generierung müssen darunter liegen.
-   - **App Check aktivieren** (siehe Abschnitt 8).
+   - **Kosten im Blick behalten:** Nach Mehrwertsteuer und 15 % Google-Gebühr bleiben pro Credit ca. 14 ct (10er), 12 ct (30er) bzw. 10 ct (70er). Ein einfaches Spiel kostet bei Gemini 3.8 Flash ca. 3 ct, ab 2027 ca. 6 ct.
+   - **App Check aktivieren** (siehe Abschnitt 9).
    - **Rechtliches:** Credit-Verkauf ist eine gewerbliche Tätigkeit (Gewerbeanmeldung, Impressum, Steuer). Das kläre bitte mit Finanzamt oder Steuerberater.
 
-## 8. Nach dem ersten Upload
+## 8. Google-Anmeldung einrichten
+
+1. Firebase-Konsole → Authentication → Anmeldemethode → „Neuen Anbieter hinzufügen“ → **Google** aktivieren.
+2. Die SHA-1-Fingerabdrücke von Upload- und Debug-Schlüssel sind in der Firebase-App hinterlegt. Nach dem ersten Upload kommt der **SHA-1 des App-Signaturschlüssels** aus der Play Console dazu (Firebase → Projekteinstellungen → Android-App → Fingerabdruck hinzufügen).
+3. Die Web-Client-ID aus der Firebase-Konfiguration in `lib/firebase_options.dart` als `kGoogleWebClientId` eintragen und die App neu bauen.
+
+## 9. Nach dem ersten Upload
 
 - **SHA-1 des App-Signaturschlüssels** (Play Console → Einrichtung → App-Signatur) zusätzlich bei der Einschränkung des Firebase-API-Keys eintragen, sonst funktioniert die Cloud in der Store-Version nicht.
 - **Firebase App Check (Play Integrity) aktivieren** und in `functions/index.js` `enforceAppCheck: true` setzen. So kann nur deine echte App die Credits nutzen. Spätestens vor dem ersten echten Verkauf.
 
-## 9. Neue Version veröffentlichen
+## 10. Neue Version veröffentlichen
 
-1. In `pubspec.yaml` die Version erhöhen, z. B. `1.1.1+3`. Die Zahl hinter `+` muss bei jedem Upload steigen.
+1. In `pubspec.yaml` die Version erhöhen, z. B. `1.2.1+4`. Die Zahl hinter `+` muss bei jedem Upload steigen.
 2. `flutter build appbundle --release`
 3. In der Play Console einen neuen Release mit dem neuen Bundle anlegen.

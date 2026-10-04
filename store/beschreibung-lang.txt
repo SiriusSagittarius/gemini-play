@@ -1,0 +1,31 @@
+Vibe Coding für dein Handy: PromptPlay verwandelt deine Ideen in spielbare Mini-Apps – ganz ohne Programmierkenntnisse. Beschreibe einfach, was du möchtest – zum Beispiel „Baue mir ein Tetris für Touchscreens“ oder „Erstelle mir ein Rennspiel“ – und die KI erstellt daraus in Sekunden eine fertige App, die du sofort im Vollbild spielen kannst.
+
+★ So funktioniert's
+• Idee eingeben oder ein Beispiel antippen
+• „Erstellen“ tippen – die KI schreibt die komplette App
+• Sofort spielen, später erneut öffnen oder mit Freunden teilen
+
+★ Funktionen
+• Spiele, Quiz, Timer und vieles mehr – optimiert für Touchscreens
+• Vollbild-Modus für ungestörtes Spielen
+• Alle Projekte übersichtlich in deiner Bibliothek
+• Teilen des HTML-Codes über den Android-Teilen-Dialog
+• 2 Gratis-Credits nach Anmeldung mit Google
+• Weitere Credits im Shop: 10 Credits für 1,99 €, 30 für 4,99 €, 70 für 9,99 €
+• Größe wählen: Klein, Mittel oder Groß
+• Weiterbauen: Spiele über Tage und Wochen erweitern, mit Versionen zum Zurückgehen
+• Eigene Grafiken: deine Bilder als Spielfiguren oder Hintergrund
+• Hilfe mit Schritt-für-Schritt-Beispielen
+• Oder unbegrenzt erstellen mit einem eigenen kostenlosen API-Key von Google Gemini oder Groq
+
+★ Für Familien
+• Familien-Modus: Erstelle als Elternteil kindgerechte Spiele für deine Kinder – ohne Gewalt, ohne Gruseliges, mit einfacher Sprache und den strengsten Sicherheitsfiltern
+• Kindgerechte Spiele bleiben es auch beim Weiterbauen
+• Tipp: Schau dir jedes Spiel kurz selbst an, bevor du es deinem Kind gibst
+
+★ Datenschutz
+• Keine Werbung, kein Tracking
+• Projekte und API-Keys bleiben auf deinem Gerät
+• Konto und Daten jederzeit in der App löschbar
+
+Hinweis: Die Inhalte werden von einer KI erzeugt und können Fehler enthalten. Unangemessene Inhalte meldest du direkt in der App über „Inhalt melden“.
