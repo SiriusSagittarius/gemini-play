@@ -21,7 +21,7 @@
 <body>
 <main>
 <h1>Datenschutzerklärung für die App „PromptPlay“</h1>
-<p class="muted">Stand: 4. Oktober 2026</p>
+<p class="muted">Stand: 5. Oktober 2026</p>
 
 <h2 id="verantwortlicher">1. Verantwortlicher</h2>
 <p>
@@ -38,7 +38,7 @@
 <p>Deine Projekte (Prompts, Titel, generierter Code, frühere Versionen und eigene Grafiken), deine API-Keys und deine Einstellungen werden ausschließlich lokal auf deinem Gerät gespeichert und nicht an uns übertragen. Sie werden gelöscht, wenn du ein Projekt in der App löschst oder die App deinstallierst.</p>
 
 <h2 id="eigener-key">4. Generierung mit eigenem API-Key</h2>
-<p>Hinterlegst du einen eigenen API-Key, sendet die App deinen Prompt – und gegebenenfalls deine eigenen Grafiken – direkt an den gewählten Anbieter. Wir erhalten diese Daten nicht. Es gelten die Bedingungen und Datenschutzhinweise des Anbieters, bei dem du den Key erstellt hast:</p>
+<p>Hinterlegst du einen eigenen API-Key, sendet die App deinen Prompt – und gegebenenfalls deine eigenen Grafiken und Vorlagen-Links – direkt an den gewählten Anbieter. Wir erhalten diese Daten nicht. Es gelten die Bedingungen und Datenschutzhinweise des Anbieters, bei dem du den Key erstellt hast:</p>
 <ul>
   <li>Google Gemini API (Google Ireland Limited / Google LLC): <a href="https://ai.google.dev/gemini-api/terms">Nutzungsbedingungen</a>, <a href="https://policies.google.com/privacy">Datenschutzerklärung</a></li>
   <li>Groq (Groq, Inc., USA): <a href="https://groq.com/privacy-policy">Datenschutzerklärung</a></li>
@@ -49,6 +49,7 @@
 <ul>
   <li><strong>Anonymes Konto:</strong> Firebase Authentication erzeugt eine zufällige, anonyme Nutzerkennung. Credits erhältst du erst nach der Anmeldung mit Google (siehe Abschnitt 6). Name, E-Mail-Adresse oder Telefonnummer werden nicht erhoben. Zu dieser Kennung speichern wir in Cloud Firestore deinen Credit-Stand, den Zeitpunkt der Anlage und den Zeitpunkt der letzten Generierung. Zweck ist die Bereitstellung des Credit-Systems und der Schutz vor Missbrauch (Art. 6 Abs. 1 lit. b DSGVO).</li>
   <li><strong>Eigene Grafiken und Weiterbauen:</strong> Fügst du einem Spiel eigene Bilder hinzu oder baust ein Spiel weiter, werden die Bilder bzw. der bisherige Code des Spiels zusammen mit deinem Wunsch auf demselben Weg an Gemini übermittelt. Auch diese Daten speichern wir auf unserem Server nicht; sie bleiben im Spiel auf deinem Gerät. Verwende nur Bilder, an denen du die Rechte hast, und keine Fotos von Personen.</li>
+  <li><strong>Vorlagen-Links:</strong> Gibst du Links als Vorlage an, werden sie zusammen mit deinem Wunsch an Gemini übermittelt; Google ruft die verlinkten Seiten ab und wertet sie aus. Gib deshalb nur öffentliche Seiten ohne personenbezogene Daten an. Damit wir die Kosten im Blick behalten, protokollieren wir die Links und ob sie abgerufen werden konnten in den technischen Protokollen (siehe unten).</li>
   <li><strong>Prompts und Ergebnisse:</strong> Dein Prompt wird an unsere Cloud Function und von dort an die Google Gemini API übermittelt. Der generierte Code wird an die App zurückgegeben. Prompt und Ergebnis speichern wir auf unserem Server nicht. Google verarbeitet die übermittelten Inhalte nach den <a href="https://ai.google.dev/gemini-api/terms">Gemini-API-Bedingungen</a>; bei unentgeltlicher Nutzung der Gemini API kann Google Inhalte auch zur Verbesserung seiner Produkte verwenden. Bitte gib deshalb keine personenbezogenen oder vertraulichen Daten in Prompts ein.</li>
   <li><strong>Technische Protokolle:</strong> Beim Aufruf unseres Servers verarbeitet Google Cloud technische Daten wie IP-Adresse und Zeitpunkt in Server-Protokollen, um einen sicheren Betrieb zu gewährleisten (Art. 6 Abs. 1 lit. f DSGVO). Diese Protokolle werden nach den Standardfristen von Google Cloud Logging gelöscht (in der Regel nach 30 Tagen).</li>
 </ul>
