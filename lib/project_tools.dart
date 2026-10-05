@@ -170,6 +170,20 @@ class DeviceFiles {
       return null;
     }
   }
+
+  /// „Speichern unter“-Dialog. `true` = gespeichert, `false` = Fehler,
+  /// `null` = abgebrochen.
+  static Future<bool?> save(String name, String mimeType, Uint8List bytes) async {
+    try {
+      return await _channel.invokeMethod<bool>('save', {
+        'name': name,
+        'mimeType': mimeType,
+        'bytes': bytes,
+      });
+    } on MissingPluginException {
+      return false;
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

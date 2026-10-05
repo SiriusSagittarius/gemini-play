@@ -215,6 +215,11 @@ class HelpScreen extends StatelessWidget {
                       '„Nutze den Sound engine als Motorgeräusch“.',
                   '„Verknüpfung auf dem Startbildschirm“ legt ein eigenes Icon an, das '
                       'das Spiel direkt startet.',
+                  'Teilen schickt das Spiel als .html-Datei – sie läuft beim '
+                      'Empfänger im Browser, auch ohne PromptPlay.',
+                  'Einstellungen → „Backup speichern“ sichert alle Spiele in einer '
+                      'Datei. Nach einer Neuinstallation holst du sie mit „Backup '
+                      'einspielen“ zurück.',
                 ]),
               ],
             ),

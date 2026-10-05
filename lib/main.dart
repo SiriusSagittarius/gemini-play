@@ -38,6 +38,7 @@ import 'package:url_launcher/url_launcher.dart' show LaunchMode, launchUrl;
 import 'firebase_options.dart';
 import 'help_screen.dart';
 import 'asset_browser.dart';
+import 'backup.dart';
 import 'link_assets.dart';
 import 'project_tools.dart';
 
@@ -2372,17 +2373,26 @@ void showMessage(BuildContext context, String message) {
     ..showSnackBar(SnackBar(content: Text(message)));
 }
 
+/// Lesbarer Dateiname zum Teilen, z. B. „Turbo Racer.html“.
+String shareFileName(String title) {
+  final name = title
+      .replaceAll(RegExp(r'[\\/:*?"<>|\x00-\x1F]'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+  final short = name.characters.take(60).toString().trim();
+  return '${short.isEmpty ? 'Spiel' : short}.html';
+}
+
+/// Teilt das Spiel immer als HTML-Datei – als Text schneiden Messenger lange
+/// Spiele ab. Bilder, Sounds, Modelle und Three.js stecken mit in der Datei,
+/// damit es beim Empfänger offline im Browser läuft.
 Future<void> shareProject(BuildContext context, AppProject project) async {
   try {
-    if (project.assetNames.isEmpty && !GameLibraries.usesThree(project.htmlCode)) {
-      await Share.share(project.htmlCode, subject: project.title);
-      return;
-    }
-    // Mit eigenen Grafiken oder Three.js ist der Code zu groß für Text – als
-    // Datei teilen, damit das Spiel auch anderswo offline läuft.
-    final assets = await AppStore.loadAssets(project.id);
+    final assets = project.assetNames.isEmpty
+        ? const <GameImage>[]
+        : await AppStore.loadAssets(project.id);
     final html = GameAssets.inject(await GameLibraries.inject(project.htmlCode), assets);
-    final fileName = '${GameImage.sanitizeName(project.title)}.html';
+    final fileName = shareFileName(project.title);
     await Share.shareXFiles(
       [XFile.fromData(utf8.encode(html), mimeType: 'text/html', name: fileName)],
       subject: project.title,
@@ -2781,6 +2791,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _buildAccountCard(theme),
           const SizedBox(height: 24),
         ],
+        Text('Datensicherung', style: theme.textTheme.titleMedium),
+        const SizedBox(height: 8),
+        Card(
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            children: [
+              ListTile(
+                leading: const Icon(Icons.save_alt),
+                title: const Text('Backup speichern'),
+                subtitle: const Text(
+                  'Alle Spiele mit Medien und Versionen als eine Datei – z. B. in '
+                  'Downloads oder Google Drive.',
+                ),
+                onTap: () => saveBackupFlow(context),
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.share_outlined),
+                title: const Text('Backup teilen'),
+                subtitle: const Text('Z. B. an dich selbst schicken.'),
+                onTap: () => shareBackupFlow(context),
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.settings_backup_restore),
+                title: const Text('Backup einspielen'),
+                subtitle: const Text('Nach einer Neuinstallation oder auf einem neuen Handy.'),
+                onTap: () => restoreBackupFlow(context),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 24),
         Text('Datenschutz', style: theme.textTheme.titleMedium),
         const SizedBox(height: 8),
         Card(
@@ -2813,7 +2856,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const SizedBox(height: 8),
         Text(
           'Deine Projekte und API-Keys liegen nur auf diesem Gerät und werden '
-          'beim Deinstallieren der App gelöscht.',
+          'beim Deinstallieren der App gelöscht – sichere deine Spiele vorher mit '
+          '„Backup speichern“.',
           style: theme.textTheme.bodySmall,
         ),
         const SizedBox(height: 24),
@@ -3134,6 +3178,14 @@ class _HomeScreenState extends State<HomeScreen> {
             onPressed: _openHelp,
             icon: const Icon(Icons.help_outline),
             label: const Text('Hilfe & Beispiele'),
+          ),
+          const SizedBox(height: 8),
+          TextButton.icon(
+            onPressed: () async {
+              if (await restoreBackupFlow(context)) await _refresh();
+            },
+            icon: const Icon(Icons.settings_backup_restore),
+            label: const Text('Backup einspielen'),
           ),
         ],
       ),

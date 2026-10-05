@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:in_app_purchase/in_app_purchase.dart' show ProductDetails;
+import 'package:promptplay/backup.dart';
 import 'package:promptplay/help_screen.dart';
 import 'package:promptplay/link_assets.dart';
 import 'package:promptplay/main.dart';
@@ -213,6 +214,43 @@ void main() {
     expect(find.text('1 Datei(en)'), findsOneWidget);
     expect(find.textContaining('Größe: '), findsOneWidget);
     expect(find.textContaining('Medien 1 KB (1)'), findsOneWidget);
+  });
+
+  test('Backup: sichern und nach Neuinstallation einspielen', () async {
+    final project = AppProject(
+      id: 'b1',
+      title: 'Snake',
+      prompt: 'Snake',
+      htmlCode: '<html>v2</html>',
+      createdAt: DateTime(2026, 10, 1),
+      updatedAt: DateTime(2026, 10, 5),
+      assetNames: const ['apfel'],
+      versionCount: 1,
+    );
+    await AppStore.saveProject(
+      project,
+      assets: const [GameImage(name: 'apfel', mimeType: 'image/png', data: 'AAAA')],
+      versions: [ProjectVersion(htmlCode: '<html>v1</html>', createdAt: DateTime(2026, 10, 1))],
+    );
+    final backup = await ProjectBackup.create();
+    expect(backup.projects, 1);
+    expect(ProjectBackup.fileName(DateTime(2026, 10, 6)), 'PromptPlay-Backup-2026-10-06.zip');
+
+    // „Neuinstallation“: leerer Speicher.
+    AppStore.projects = MemoryProjectRepository();
+    final restored = await ProjectBackup.restore(backup.bytes);
+    expect(restored, (added: 1, updated: 0, skipped: 0));
+    final loaded = (await AppStore.loadProjects()).single;
+    expect(loaded.htmlCode, '<html>v2</html>');
+    expect((await AppStore.loadAssets('b1')).single.name, 'apfel');
+    expect((await AppStore.loadVersions('b1')).single.htmlCode, '<html>v1</html>');
+
+    // Nochmal einspielen: nichts doppelt.
+    expect(await ProjectBackup.restore(backup.bytes), (added: 0, updated: 0, skipped: 1));
+    await expectLater(
+      ProjectBackup.restore(Uint8List.fromList([1, 2, 3])),
+      throwsA(isA<BackupException>()),
+    );
   });
 
   testWidgets('Medien-Ordner zeigt Dateien und entfernt sie', (tester) async {
@@ -715,6 +753,13 @@ gltf.load("models/gltf/scene.gltf");
       expect(bounds, startsWith('Maße ca. 6.00 × 1.00 × 2.00'));
       expect(bounds, contains('von x -1.00 bis 5.00'));
       expect(bounds, contains('y 0.00 bis 1.00'));
+    });
+
+    test('Teilen: lesbarer Dateiname', () {
+      expect(shareFileName('Turbo Racer'), 'Turbo Racer.html');
+      expect(shareFileName('Mario/Luigi: Das Spiel?'), 'Mario Luigi Das Spiel.html');
+      expect(shareFileName('  '), 'Spiel.html');
+      expect(shareFileName('x' * 80), '${'x' * 60}.html');
     });
 
     test('erkennt Sounds und ZIP am Dateiinhalt', () {

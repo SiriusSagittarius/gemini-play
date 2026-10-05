@@ -21,20 +21,38 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private var channel: MethodChannel? = null
     private var pendingPick: MethodChannel.Result? = null
+    private var pendingSave: MethodChannel.Result? = null
+    private var pendingSaveBytes: ByteArray? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, FILES_CHANNEL).setMethodCallHandler { call, result ->
-            if (call.method != "pick") return@setMethodCallHandler result.notImplemented()
-            pendingPick?.success(null)
-            pendingPick = result
-            val pick = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                addCategory(Intent.CATEGORY_OPENABLE)
-                type = "*/*"
-                putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
-            }
             @Suppress("DEPRECATION")
-            startActivityForResult(pick, PICK_REQUEST)
+            when (call.method) {
+                "pick" -> {
+                    pendingPick?.success(null)
+                    pendingPick = result
+                    val pick = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = "*/*"
+                        putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                    }
+                    startActivityForResult(pick, PICK_REQUEST)
+                }
+                // „Speichern unter“: Android fragt nach Ort und Namen (Downloads, Drive …).
+                "save" -> {
+                    pendingSave?.success(null)
+                    pendingSave = result
+                    pendingSaveBytes = call.argument<ByteArray>("bytes")
+                    val save = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = call.argument<String>("mimeType") ?: "application/octet-stream"
+                        putExtra(Intent.EXTRA_TITLE, call.argument<String>("name") ?: "PromptPlay")
+                    }
+                    startActivityForResult(save, SAVE_REQUEST)
+                }
+                else -> result.notImplemented()
+            }
         }
         channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).apply {
             setMethodCallHandler { call, result ->
@@ -60,6 +78,7 @@ class MainActivity : FlutterActivity() {
     @Suppress("DEPRECATION")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == SAVE_REQUEST) return finishSave(resultCode, data?.data)
         if (requestCode != PICK_REQUEST) return
         val result = pendingPick ?: return
         pendingPick = null
@@ -73,6 +92,23 @@ class MainActivity : FlutterActivity() {
         Thread {
             val files = uris.mapNotNull { uri -> readFile(uri) }
             runOnUiThread { result.success(files) }
+        }.start()
+    }
+
+    /** Schreibt die Datei an den gewählten Ort; `null` heißt abgebrochen. */
+    private fun finishSave(resultCode: Int, uri: Uri?) {
+        val result = pendingSave ?: return
+        val bytes = pendingSaveBytes
+        pendingSave = null
+        pendingSaveBytes = null
+        if (resultCode != Activity.RESULT_OK || uri == null || bytes == null) return result.success(null)
+        Thread {
+            val ok = try {
+                contentResolver.openOutputStream(uri, "wt")?.use { it.write(bytes) } != null
+            } catch (e: Exception) {
+                false
+            }
+            runOnUiThread { result.success(ok) }
         }.start()
     }
 
@@ -123,6 +159,7 @@ class MainActivity : FlutterActivity() {
         private const val FILES_CHANNEL = "promptplay/files"
         private const val EXTRA_PROJECT = "projectId"
         private const val PICK_REQUEST = 4711
+        private const val SAVE_REQUEST = 4712
         private const val MAX_PICK_BYTES = 60 * 1024 * 1024
     }
 }
