@@ -515,13 +515,107 @@ class LinkAssetFetcher {
     final nodes = names('nodes', 60);
     final materials = names('materials', 30);
     final animations = names('animations', 20);
+    final bounds = describeBounds(json);
     return [
       '3D-Modell (glTF)',
+      if (bounds != null) bounds,
       if (nodes.isNotEmpty) 'benannte Teile: ${nodes.join(', ')}',
       if (materials.isNotEmpty) 'Materialien: ${materials.join(', ')}',
       if (animations.isNotEmpty) 'Animationen: ${animations.join(', ')}',
     ].join('; ');
   }
+
+  /// Maße des Modells in der Szene (inkl. Verschiebung, Drehung und Skalierung
+  /// der Knoten) – damit die KI Modelle passend skaliert und Bausatz-Teile wie
+  /// Straßenstücke lückenlos aneinandersetzt.
+  static String? describeBounds(Map<String, dynamic> json) {
+    try {
+      final accessors = json['accessors'] as List? ?? const [];
+      final meshes = json['meshes'] as List? ?? const [];
+      final allNodes = json['nodes'] as List? ?? const [];
+      final scenes = json['scenes'] as List? ?? const [];
+      final sceneIndex = (json['scene'] as num?)?.toInt() ?? 0;
+      final roots = scenes.isEmpty
+          ? List.generate(allNodes.length, (i) => i)
+          : [for (final n in (scenes[sceneIndex] as Map)['nodes'] as List? ?? const []) (n as num).toInt()];
+
+      final min = [double.infinity, double.infinity, double.infinity];
+      final max = [double.negativeInfinity, double.negativeInfinity, double.negativeInfinity];
+
+      void visit(int index, List<double> parent, int depth) {
+        if (depth > 64 || index >= allNodes.length) return;
+        final node = allNodes[index] as Map;
+        final world = _multiply(parent, _localMatrix(node));
+        final mesh = node['mesh'];
+        if (mesh is num && mesh < meshes.length) {
+          for (final primitive in (meshes[mesh.toInt()] as Map)['primitives'] as List? ?? const []) {
+            final position = ((primitive as Map)['attributes'] as Map?)?['POSITION'];
+            if (position is! num) continue;
+            final accessor = accessors[position.toInt()] as Map;
+            final lo = [for (final v in accessor['min'] as List) (v as num).toDouble()];
+            final hi = [for (final v in accessor['max'] as List) (v as num).toDouble()];
+            for (var corner = 0; corner < 8; corner++) {
+              final p = _transform(world, [
+                corner & 1 == 0 ? lo[0] : hi[0],
+                corner & 2 == 0 ? lo[1] : hi[1],
+                corner & 4 == 0 ? lo[2] : hi[2],
+              ]);
+              for (var axis = 0; axis < 3; axis++) {
+                if (p[axis] < min[axis]) min[axis] = p[axis];
+                if (p[axis] > max[axis]) max[axis] = p[axis];
+              }
+            }
+          }
+        }
+        for (final child in node['children'] as List? ?? const []) {
+          visit((child as num).toInt(), world, depth + 1);
+        }
+      }
+
+      for (final root in roots) {
+        visit(root, _identity, 0);
+      }
+      if (min[0] == double.infinity) return null;
+      String f(double v) => v.toStringAsFixed(2);
+      return 'Maße ca. ${f(max[0] - min[0])} × ${f(max[1] - min[1])} × ${f(max[2] - min[2])} '
+          '(x × y × z, y = oben), von x ${f(min[0])} bis ${f(max[0])}, '
+          'y ${f(min[1])} bis ${f(max[1])}, z ${f(min[2])} bis ${f(max[2])}';
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static const _identity = <double>[1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+
+  /// Lokale Matrix eines glTF-Knotens (spaltenweise wie im glTF-Standard).
+  static List<double> _localMatrix(Map node) {
+    final matrix = node['matrix'];
+    if (matrix is List && matrix.length == 16) {
+      return [for (final v in matrix) (v as num).toDouble()];
+    }
+    List<double> vec(String key, List<double> fallback) =>
+        node[key] is List ? [for (final v in node[key] as List) (v as num).toDouble()] : fallback;
+    final t = vec('translation', [0, 0, 0]);
+    final q = vec('rotation', [0, 0, 0, 1]);
+    final s = vec('scale', [1, 1, 1]);
+    final (x, y, z, w) = (q[0], q[1], q[2], q[3]);
+    return [
+      (1 - 2 * (y * y + z * z)) * s[0], (2 * (x * y + z * w)) * s[0], (2 * (x * z - y * w)) * s[0], 0,
+      (2 * (x * y - z * w)) * s[1], (1 - 2 * (x * x + z * z)) * s[1], (2 * (y * z + x * w)) * s[1], 0,
+      (2 * (x * z + y * w)) * s[2], (2 * (y * z - x * w)) * s[2], (1 - 2 * (x * x + y * y)) * s[2], 0,
+      t[0], t[1], t[2], 1,
+    ];
+  }
+
+  static List<double> _multiply(List<double> a, List<double> b) => [
+        for (var col = 0; col < 4; col++)
+          for (var row = 0; row < 4; row++)
+            a[row] * b[col * 4] + a[4 + row] * b[col * 4 + 1] + a[8 + row] * b[col * 4 + 2] + a[12 + row] * b[col * 4 + 3],
+      ];
+
+  static List<double> _transform(List<double> m, List<double> p) => [
+        for (var row = 0; row < 3; row++) m[row] * p[0] + m[4 + row] * p[1] + m[8 + row] * p[2] + m[12 + row],
+      ];
 
   /// Urheberangabe aus dem Infobereich einer Seite (wie bei threejs.org). Nur
   /// die Zeilen mit Urheber oder Lizenz – den Titel des Beispiels nicht, sonst

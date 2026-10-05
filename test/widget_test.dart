@@ -11,6 +11,7 @@ import 'package:in_app_purchase/in_app_purchase.dart' show ProductDetails;
 import 'package:promptplay/help_screen.dart';
 import 'package:promptplay/link_assets.dart';
 import 'package:promptplay/main.dart';
+import 'package:promptplay/project_tools.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Shop-Attrappe: Ein Kauf schreibt sofort die Credits des Pakets gut.
@@ -172,6 +173,77 @@ void main() {
     expect(find.text('Noch keine Projekte'), findsOneWidget);
     expect(find.text('API-Key fehlt'), findsOneWidget);
     expect(find.byIcon(Icons.add), findsOneWidget);
+  });
+
+  testWidgets('Projektliste: Name mit Icon, Antippen öffnet die Optionen',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({'gemini_api_key': 'AIzaTest'});
+    await AppStore.saveProject(
+      AppProject(
+        id: 'p1',
+        title: 'Turbo Racer',
+        prompt: 'Rennspiel',
+        htmlCode: '<html>${'x' * 3000}</html>',
+        createdAt: DateTime(2026, 10, 5),
+        assetNames: const ['engine'],
+      ),
+      assets: const [
+        GameImage(name: 'engine', mimeType: 'audio/ogg', data: 'AAAA', source: 'gerät:engine.ogg'),
+      ],
+    );
+
+    await tester.pumpWidget(const PromptPlayApp());
+    await tester.pumpAndSettle();
+    expect(find.text('Turbo Racer'), findsOneWidget);
+    expect(find.text('T'), findsOneWidget); // Icon mit Anfangsbuchstaben
+    expect(find.text('Weiterbauen'), findsNothing); // Optionen erst nach Antippen
+
+    await tester.tap(find.text('Turbo Racer'));
+    await tester.pumpAndSettle();
+    for (final option in [
+      'Starten',
+      'Weiterbauen',
+      'Medien-Ordner',
+      'Teilen',
+      'Verknüpfung auf dem Startbildschirm',
+      'Löschen',
+    ]) {
+      expect(find.text(option), findsOneWidget, reason: option);
+    }
+    expect(find.text('1 Datei(en)'), findsOneWidget);
+    expect(find.textContaining('Größe: '), findsOneWidget);
+    expect(find.textContaining('Medien 1 KB (1)'), findsOneWidget);
+  });
+
+  testWidgets('Medien-Ordner zeigt Dateien und entfernt sie', (tester) async {
+    final project = AppProject(
+      id: 'p2',
+      title: 'Space',
+      prompt: 'Weltraum',
+      htmlCode: '<html></html>',
+      createdAt: DateTime(2026, 10, 5),
+      assetNames: const ['ufo', 'laser'],
+    );
+    await AppStore.saveProject(project, assets: const [
+      GameImage(name: 'ufo', mimeType: 'model/gltf-binary', data: 'AAAA', source: 'https://kenney.nl/x.zip#ufo.glb'),
+      GameImage(name: 'laser', mimeType: 'audio/ogg', data: 'AAAA', source: 'gerät:laser.ogg'),
+    ]);
+
+    await tester.pumpWidget(MaterialApp(home: ProjectMediaScreen(project: project)));
+    await tester.pumpAndSettle();
+    expect(find.text('ufo'), findsOneWidget);
+    expect(find.text('3D-Modell · 1 KB · kenney.nl'), findsOneWidget);
+    expect(find.text('laser'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Entfernen').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Entfernen'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('laser'), findsNothing);
+    expect((await AppStore.loadAssets('p2')).map((a) => a.name), ['ufo']);
+    expect((await AppStore.loadProjects()).single.assetNames, ['ufo']);
+    expect(find.text('Jetzt weiterbauen'), findsOneWidget);
   });
 
   testWidgets('Credit-Shop zeigt drei Pakete und schreibt einen Kauf gut',
@@ -604,6 +676,45 @@ gltf.load("models/gltf/scene.gltf");
       final result = await LinkAssetFetcher(client: client).fetch('https://kenney.nl/assets/racing-kit');
       expect(result.archive!.fileName, 'kenney_racing-kit.zip');
       expect(result.archive!.items.single.fileName, 'car.glb');
+    });
+
+    test('Maße eines Modells samt Verschiebung, Drehung und Skalierung', () {
+      final bounds = LinkAssetFetcher.describeBounds({
+        'scene': 0,
+        'scenes': [
+          {'nodes': [0]},
+        ],
+        'nodes': [
+          {
+            'scale': [2, 2, 2],
+            'children': [1],
+          },
+          {
+            'mesh': 0,
+            'translation': [1, 0, 0],
+            // 90° um y: aus 1 × 0,5 × 3 wird 3 × 0,5 × 1.
+            'rotation': [0, 0.7071068, 0, 0.7071068],
+          },
+        ],
+        'meshes': [
+          {
+            'primitives': [
+              {
+                'attributes': {'POSITION': 0},
+              },
+            ],
+          },
+        ],
+        'accessors': [
+          {
+            'min': [-0.5, 0, -1.5],
+            'max': [0.5, 0.5, 1.5],
+          },
+        ],
+      });
+      expect(bounds, startsWith('Maße ca. 6.00 × 1.00 × 2.00'));
+      expect(bounds, contains('von x -1.00 bis 5.00'));
+      expect(bounds, contains('y 0.00 bis 1.00'));
     });
 
     test('erkennt Sounds und ZIP am Dateiinhalt', () {

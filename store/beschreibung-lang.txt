@@ -16,7 +16,9 @@ Vibe Coding für dein Handy: PromptPlay verwandelt deine Ideen in spielbare Mini
 • Weiterbauen: Spiele über Tage und Wochen erweitern, mit Versionen zum Zurückgehen
 • Eigene Grafiken: deine Bilder als Spielfiguren oder Hintergrund
 • 3D-Spiele: Three.js ist eingebaut – z. B. Autorennen mit Kamera hinter dem Auto
-• Echte 3D-Modelle aus dem Netz: Link zu einem threejs.org-Beispiel oder einer .glb-Datei angeben – die App baut Modell, Licht und Texturen ins Spiel ein
+• Echte 3D-Modelle und Sounds: Gratis-Quellen wie Kenney und Poly Haven direkt in der App durchsuchen und ins Spiel übernehmen
+• Referenzbilder: Die KI orientiert sich am Stil eines Bildes, ohne es zu kopieren
+• Medien-Ordner pro Spiel und Verknüpfungen auf dem Startbildschirm
 • Hilfe mit Schritt-für-Schritt-Beispielen
 • Oder unbegrenzt erstellen mit einem eigenen kostenlosen API-Key von Google Gemini oder Groq
 

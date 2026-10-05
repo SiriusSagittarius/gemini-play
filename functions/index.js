@@ -393,7 +393,7 @@ async function generateHtml(job) {
 
   let model = job.model;
   let request = buildGeminiRequest(job);
-  let recitationRetried = false;
+  let recitationRetries = 0;
   let response;
   for (let attempt = 0; ; attempt++) {
     try {
@@ -411,15 +411,19 @@ async function generateHtml(job) {
         },
       });
       // Gemini bricht ab, wenn es bekannten Code wörtlich wiedergeben würde
-      // (im Test vor allem mit Vorlagen-Links). Dann einmal neu versuchen –
-      // ohne das Lesen der Seiten; die übernommenen Dateien bleiben.
+      // (im Test bei Pro in etwa jedem dritten Lauf). Dann bis zu zweimal neu
+      // versuchen – ohne das Lesen der Seiten; die übernommenen Dateien bleiben.
       if (
         response.candidates?.[0]?.finishReason === "RECITATION" &&
-        !recitationRetried &&
-        Date.now() < deadline - 120_000
+        recitationRetries < 2 &&
+        Date.now() < deadline - 150_000
       ) {
-        logger.warn("Zu wörtliche Wiedergabe, neuer Versuch", { model, withSources: Boolean(request.tools) });
-        recitationRetried = true;
+        recitationRetries++;
+        logger.warn("Zu wörtliche Wiedergabe, neuer Versuch", {
+          model,
+          attempt: recitationRetries,
+          withSources: Boolean(request.tools),
+        });
         request = buildGeminiRequest({ ...job, sources: [] });
         continue;
       }

@@ -39,6 +39,7 @@ import 'firebase_options.dart';
 import 'help_screen.dart';
 import 'asset_browser.dart';
 import 'link_assets.dart';
+import 'project_tools.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -879,6 +880,7 @@ $k3dInstructions
 
 QUALITÄT:
 - Vollständig implementiert und sofort benutzbar bzw. spielbar: keine Platzhalter, keine TODOs, kein Pseudocode.
+- Schreibe den gesamten Code selbst in eigenem Stil mit deutschen Variablen- und Funktionsnamen (z. B. spielerAuto, starteRennen) – keine wörtlich übernommenen Beispiele oder Codestücke aus Bibliotheken und Tutorials.
 - Keine JavaScript-Fehler. Spiele haben einen Startbildschirm, Punktestand (wo sinnvoll), Game-Over-Zustand und Neustart.
 - Neustart und Zurücksetzen ausschließlich per JavaScript-Zustand, NIEMALS über location.reload() oder Seitenwechsel.
 - localStorage nur innerhalb von try/catch verwenden (z. B. für Highscores).
@@ -900,7 +902,8 @@ const kSoundInstructions =
 const k3dInstructions = '''3D MIT THREE.JS:
 - Für 3D-Spiele (z. B. Autorennen, Flugspiele, 3D-Labyrinthe) steht Three.js (r186) bereits als globale Variable THREE bereit – die App lädt es automatisch vor deinem Code. Verwende THREE direkt (z. B. new THREE.Scene()). KEIN import, KEIN <script src>, KEINE Importmap.
 - Zusätzlich eingebaut: THREE.GLTFLoader, THREE.DRACOLoader, THREE.HDRLoader, THREE.RoomEnvironment, THREE.EffectComposer, THREE.RenderPass, THREE.UnrealBloomPass, THREE.OutputPass sowie der Helfer PromptPlay (PromptPlay.roomEnvironment(renderer) liefert Studio-Licht für Spiegelungen). Andere Addons (z. B. OrbitControls) gibt es nicht.
-- Hochwertige Optik ist Pflicht: WebGLRenderer mit antialias, setPixelRatio(Math.min(devicePixelRatio, 2)), toneMapping = THREE.ACESFilmicToneMapping; MeshStandardMaterial bzw. MeshPhysicalMaterial (Lack mit clearcoat) statt MeshBasicMaterial; scene.environment = PromptPlay.roomEnvironment(renderer) oder ein eingebettetes HDR, damit Metall, Glas und Lack spiegeln; ein DirectionalLight mit weichen Schatten (shadow.mapSize 2048) plus HemisphereLight; scene.fog für Tiefe; Boden und Strecke mit CanvasTexture-Mustern statt einfarbig; Himmel als Farbverlauf oder HDR. Leuchtende Teile dürfen mit UnrealBloomPass glühen.
+- Hochwertige Optik ist Pflicht: WebGLRenderer mit antialias, setPixelRatio(Math.min(devicePixelRatio, 2)), toneMapping = THREE.ACESFilmicToneMapping; MeshStandardMaterial bzw. MeshPhysicalMaterial (Lack mit clearcoat) statt MeshBasicMaterial; scene.environment = PromptPlay.roomEnvironment(renderer) oder ein eingebettetes HDR, damit Metall, Glas und Lack spiegeln; ein DirectionalLight mit weichen Schatten (shadow.mapSize 2048) plus HemisphereLight; scene.fog für Tiefe; Boden und Strecke mit CanvasTexture-Mustern statt einfarbig; Himmel als Farbverlauf oder HDR. Leuchtende Teile dürfen mit UnrealBloomPass glühen – nur dezent (threshold ab 0.9, strength höchstens 0.4) und keine fast weißen Böden, sonst überstrahlt das Bild.
+- Rennstrecken als geschlossene Kurve (THREE.CatmullRomCurve3) mit eigener Fahrbahn-Geometrie (Asphalt-Textur, Randstreifen, Leitplanken entlang der Kurve); Gegner fahren diese Kurve ab. Eingebettete Fahrzeug- und Deko-Modelle (Autos, Zelte, Absperrungen) darauf bzw. daneben verteilen. Bausatz-Streckenteile nur, wenn ausdrücklich gewünscht – dann streng auf einem Raster.
 - Ohne eingebettete Modelle baust du Fahrzeuge, Figuren und Umgebung detailliert aus vielen Teilen (Karosserie mit Rundungen, Fenster, Scheinwerfer, Räder mit Felgen, mehrere Materialien) und gruppierst sie – keine einzelnen Klötze.
 - Die Kamera zeigt die Spielfigur jederzeit gut sichtbar (bei Fahrzeugen schräg hinter und über dem Fahrzeug, Blick nach vorn) und folgt ihr weich (lerp); im Hochformat ein größeres Sichtfeld. Startpositionen so wählen, dass Kamera und Figuren nicht in Wänden oder Leitplanken stecken.
 - Animationsschleife mit renderer.setAnimationLoop und Zeitdelta; Größe und Kamera bei resize anpassen.
@@ -977,7 +980,7 @@ ${list.join('\n')}
   Sound: const buf = await PromptPlay.loadSound("NAME"); const s = PromptPlay.playSound(buf, { volume: 0.6, rate: 1, loop: false }); später s.setRate(…), s.setVolume(…), s.stop().
 - Sounds erst nach der ersten Berührung abspielen (z. B. beim Start-Button). Dauergeräusche wie einen Motor als Loop starten und Tonhöhe und Lautstärke laufend dem Spielgeschehen anpassen. Eingebettete Sounds haben Vorrang vor selbst erzeugten.
 - Ein HDR ist vor allem für Licht und Spiegelungen da. Als sichtbaren Hintergrund nur verschwommen (scene.background = env; scene.backgroundBlurriness = 0.6) – oder ein eigener Himmel, wenn das Foto nicht zur Spielwelt passt.
-- Die Modelle sind die Hauptfiguren bzw. -objekte – NICHT aus Grundformen nachbauen. Miss nach dem Laden die Größe mit new THREE.Box3().setFromObject(gltf.scene) und skaliere passend. Bausätze aus vielen Teilen (z. B. Straßenstücke) setzt du anhand dieser Maße lückenlos aneinander.
+- Die Modelle sind die Hauptfiguren bzw. -objekte – NICHT aus Grundformen nachbauen. Setze jedes Modell über const obj = PromptPlay.centered(gltf.scene.clone()) in die Szene (optional { size: Zielgröße }): Dann liegt seine Mitte bei x = z = 0 und sein Boden bei y = 0 – viele Modelle haben ihren Ursprung woanders (siehe Maße). Bausätze aus vielen Teilen (z. B. Straßenstücke) setzt du so anhand der angegebenen Maße lückenlos auf ein Raster, Drehungen in 90°-Schritten, alle Teile im selben Maßstab.
 - Laut glTF-Standard zeigt die Vorderseite eines Modells in +Z-Richtung. Pack das Modell in eine Gruppe und drehe es darin so, dass es in deine Fahrt- bzw. Laufrichtung zeigt – die Kamera hinter dem Fahrzeug sieht das Heck, nicht die Front. Bewegliche Teile sprichst du über gltf.scene.getObjectByName("…") an (z. B. Räder drehen), Farben über das passende Material. Für Kopien (z. B. Gegner) gltf.scene.clone() verwenden statt neu zu laden.
 - Verlangt die Lizenz eine Namensnennung (z. B. „model by …“, CC BY), nenne den Urheber klein im Startbildschirm. CC0 braucht keine Nennung.''';
 }
@@ -2850,6 +2853,11 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _refresh();
     _startCloud();
+    // Verknüpfungen auf dem Startbildschirm öffnen direkt ein Spiel.
+    ProjectShortcuts.listen(_openProjectById);
+    ProjectShortcuts.initialProject().then((id) {
+      if (id != null && mounted) _openProjectById(id);
+    });
     _userSubscription = cloudService?.userChanges.listen((user) {
       if (mounted) {
         setState(() => _signedInWithGoogle = !(user?.isAnonymous ?? true));
@@ -3015,8 +3023,18 @@ class _HomeScreenState extends State<HomeScreen> {
                 if (_projects.isEmpty)
                   _buildEmptyState(context)
                 else
-                  for (final project in _projects)
-                    _buildProjectCard(context, project),
+                  Card(
+                    clipBehavior: Clip.antiAlias,
+                    margin: EdgeInsets.zero,
+                    child: Column(
+                      children: [
+                        for (final (index, project) in _projects.indexed) ...[
+                          if (index > 0) const Divider(height: 1, indent: 72),
+                          _buildProjectTile(context, project),
+                        ],
+                      ],
+                    ),
+                  ),
               ],
             ),
     );
@@ -3122,97 +3140,141 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildProjectCard(BuildContext context, AppProject project) {
+  Widget _buildProjectTile(BuildContext context, AppProject project) {
+    return ListTile(
+      leading: ProjectIcon(project: project),
+      title: Text(project.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+      trailing: project.kidSafe
+          ? Tooltip(
+              message: 'Kindgerecht (Familien-Modus)',
+              child: Icon(Icons.family_restroom, size: 20, color: Theme.of(context).colorScheme.primary),
+            )
+          : null,
+      onTap: () => _showProjectMenu(project),
+      onLongPress: () => _showProjectMenu(project),
+    );
+  }
+
+  /// Optionen zu einem Projekt: Starten, Weiterbauen, Medien, Teilen,
+  /// Verknüpfung, Größe und Löschen.
+  Future<void> _showProjectMenu(AppProject project) async {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
-    final generatedBy = project.generatedBy;
-
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          ListTile(
-            contentPadding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-            leading: CircleAvatar(
-              backgroundColor: colors.primaryContainer,
-              foregroundColor: colors.onPrimaryContainer,
-              child: const Icon(Icons.videogame_asset_outlined),
-            ),
-            title: Text(
-              project.title,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+    final size = projectSize(project);
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        Widget item(IconData icon, String title, String action, {String? subtitle}) => ListTile(
+              leading: Icon(icon),
+              title: Text(title),
+              subtitle: subtitle == null ? null : Text(subtitle),
+              onTap: () => Navigator.of(sheetContext).pop(action),
+            );
+        return SafeArea(
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  project.versionCount == 0
-                      ? formatDate(project.updatedAt)
-                      : '${formatDate(project.updatedAt)} · '
-                          'Version ${project.versionCount + 1}',
-                ),
-                if (project.kidSafe)
-                  Text(
-                    'Kindgerecht (Familien-Modus)',
-                    style: theme.textTheme.bodySmall?.copyWith(color: colors.primary),
+                ListTile(
+                  leading: ProjectIcon(project: project, size: 48),
+                  title: Text(project.title, style: theme.textTheme.titleMedium),
+                  subtitle: Text(
+                    [
+                      formatDate(project.updatedAt),
+                      if (project.versionCount > 0) 'Version ${project.versionCount + 1}',
+                      if (project.kidSafe) 'Kindgerecht',
+                      if (project.generatedBy != null) project.generatedBy!,
+                    ].join(' · '),
                   ),
-                if (generatedBy != null)
-                  Text(
-                    generatedBy,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall,
-                  ),
-                if (project.prompt.isNotEmpty)
-                  Text(
-                    project.prompt,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall,
-                  ),
-              ],
-            ),
-            onTap: () => _openProject(project),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(8, 4, 12, 12),
-            child: OverflowBar(
-              alignment: MainAxisAlignment.end,
-              overflowAlignment: OverflowBarAlignment.end,
-              spacing: 4,
-              overflowSpacing: 4,
-              children: [
-                TextButton.icon(
-                  style: TextButton.styleFrom(foregroundColor: colors.error),
-                  onPressed: () => _deleteProject(project),
-                  icon: const Icon(Icons.delete_outline),
-                  label: const Text('Löschen'),
                 ),
-                TextButton.icon(
-                  onPressed: () => shareProject(context, project),
-                  icon: const Icon(Icons.share_outlined),
-                  label: const Text('Teilen'),
+                const Divider(height: 1),
+                item(Icons.play_arrow_rounded, 'Starten', 'play'),
+                item(Icons.auto_fix_high, 'Weiterbauen', 'extend'),
+                item(
+                  Icons.perm_media_outlined,
+                  'Medien-Ordner',
+                  'media',
+                  subtitle: project.assetNames.isEmpty
+                      ? 'Bilder, Sounds und 3D-Modelle fürs Spiel'
+                      : '${project.assetNames.length} Datei(en)',
                 ),
-                TextButton.icon(
-                  onPressed: () => _extendProject(project),
-                  icon: const Icon(Icons.auto_fix_high),
-                  label: const Text('Weiterbauen'),
+                item(Icons.share_outlined, 'Teilen', 'share'),
+                item(Icons.add_to_home_screen, 'Verknüpfung auf dem Startbildschirm', 'shortcut'),
+                FutureBuilder<ProjectSize>(
+                  future: size,
+                  builder: (_, snapshot) {
+                    final s = snapshot.data;
+                    return ListTile(
+                      leading: const Icon(Icons.data_usage),
+                      title: Text(s == null ? 'Größe' : 'Größe: ${formatBytes(s.code + s.media + s.versions)}'),
+                      subtitle: Text(
+                        s == null
+                            ? 'wird berechnet …'
+                            : 'Spiel ${formatBytes(s.code)} · Medien ${formatBytes(s.media)} '
+                                '(${s.mediaCount}) · Versionen ${formatBytes(s.versions)} (${s.versionCount})',
+                      ),
+                    );
+                  },
                 ),
-                FilledButton.icon(
-                  onPressed: () => _openProject(project),
-                  icon: const Icon(Icons.play_arrow_rounded),
-                  label: const Text('Öffnen / Spielen'),
+                const Divider(height: 1),
+                ListTile(
+                  leading: Icon(Icons.delete_outline, color: colors.error),
+                  title: Text('Löschen', style: TextStyle(color: colors.error)),
+                  onTap: () => Navigator.of(sheetContext).pop('delete'),
                 ),
               ],
             ),
           ),
-        ],
-      ),
+        );
+      },
     );
+    if (action == null || !mounted) return;
+    switch (action) {
+      case 'play':
+        await _openProject(project);
+      case 'extend':
+        await _extendProject(project);
+      case 'media':
+        await _openMedia(project);
+      case 'share':
+        await shareProject(context, project);
+      case 'shortcut':
+        final pinned = await ProjectShortcuts.pin(project);
+        if (!mounted) return;
+        showMessage(
+          context,
+          pinned
+              ? 'Bestätige die Verknüpfung im Fenster deines Startbildschirms.'
+              : 'Dein Startbildschirm unterstützt keine Verknüpfungen.',
+        );
+      case 'delete':
+        await _deleteProject(project);
+    }
+  }
+
+  Future<void> _openMedia(AppProject project) async {
+    final result = await Navigator.of(context).push<String>(
+      MaterialPageRoute(builder: (_) => ProjectMediaScreen(project: project)),
+    );
+    await _refresh();
+    if (result != 'extend' || !mounted) return;
+    final updated = _projects.where((p) => p.id == project.id).firstOrNull;
+    if (updated != null) await _extendProject(updated);
+  }
+
+  /// Öffnet ein Spiel über seine Verknüpfung auf dem Startbildschirm.
+  Future<void> _openProjectById(String id) async {
+    final projects = await AppStore.loadProjects();
+    final project = projects.where((p) => p.id == id).firstOrNull;
+    if (!mounted) return;
+    if (project == null) {
+      showMessage(context, 'Dieses Spiel gibt es nicht mehr.');
+      return;
+    }
+    Navigator.of(context).popUntil((route) => route.isFirst);
+    await _openProject(project);
   }
 }
 

@@ -256,15 +256,16 @@ class _AssetBrowserScreenState extends State<AssetBrowserScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ListTile(
-              leading: const Icon(Icons.visibility_outlined),
-              title: const Text('Nur als Referenz'),
-              subtitle: const Text(
-                'Die KI schaut sich das Bild an und gestaltet eigene Grafiken in dem Stil – '
-                'das Bild selbst kommt nicht ins Spiel. Auch für geschützte Bilder.',
+            if (widget.maxReferences > 0)
+              ListTile(
+                leading: const Icon(Icons.visibility_outlined),
+                title: const Text('Nur als Referenz'),
+                subtitle: const Text(
+                  'Die KI schaut sich das Bild an und gestaltet eigene Grafiken in dem Stil – '
+                  'das Bild selbst kommt nicht ins Spiel. Auch für geschützte Bilder.',
+                ),
+                onTap: () => Navigator.of(sheetContext).pop('reference'),
               ),
-              onTap: () => Navigator.of(sheetContext).pop('reference'),
-            ),
             ListTile(
               leading: const Icon(Icons.add_photo_alternate_outlined),
               title: const Text('Ins Spiel übernehmen'),

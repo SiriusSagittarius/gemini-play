@@ -116,22 +116,26 @@ class HelpScreen extends StatelessWidget {
             ),
             _Section(
               icon: Icons.view_in_ar_outlined,
-              title: '3D-Spiele und Vorlagen aus dem Netz',
+              title: '3D-Modelle, Sounds und Vorlagen aus dem Netz',
               children: [
                 _Bullets([
                   'Für 3D-Spiele ist Three.js fest eingebaut – die KI nutzt es '
                       'automatisch, wenn du ein 3D-Spiel möchtest. Das läuft '
                       'auch offline.',
-                  'Echte 3D-Modelle: Trag unter „Vorlagen und 3D-Modelle aus dem '
-                      'Netz“ einen Link ein, z. B. ein Beispiel von threejs.org, '
-                      'und tippe auf „Dateien übernehmen“. Die App lädt Modelle '
-                      '(.glb), HDR-Licht und Texturen herunter und baut sie ins '
-                      'Spiel ein.',
-                  'Mit Gemini liest die KI die Seite zusätzlich als Vorlage – in '
-                      'der PromptPlay Cloud kostet das 1 Credit extra.',
-                  'Verwende nur Modelle, die du nutzen darfst – die Lizenz steht '
-                      'meist auf der Herkunftsseite. Den Urheber blendet das Spiel '
-                      'im Startbildschirm ein.',
+                  '„Quellen durchsuchen“ öffnet Gratis-Quellen wie Kenney (3D-Modelle, '
+                      'Sounds, 2D-Grafiken), Poly Haven (HDR-Himmel) und ambientCG '
+                      '(Texturen) – alle CC0, also frei nutzbar, auch zum Teilen.',
+                  'Dort auf „Download“ tippen oder unten „Diese Seite übernehmen“. Bei '
+                      'Paketen wählst du mit Vorschau aus, was ins Spiel soll – z. B. '
+                      'Rennautos und Streckenteile aus dem Kenney Racing Kit.',
+                  'Lange auf ein beliebiges Bild drücken → „Nur als Referenz“: Die KI '
+                      'orientiert sich an Stil und Farben, das Bild selbst kommt nicht '
+                      'ins Spiel. So kannst du auch geschützte Bilder als Vorlage nutzen.',
+                  'Mit Gemini liest die KI eingetragene Seiten zusätzlich als Vorlage – '
+                      'in der PromptPlay Cloud kostet das 1 Credit extra.',
+                  'Bei anderen Quellen gilt die Lizenz des Urhebers. Marken wie '
+                      'Automarken oder bekannte Figuren sind zusätzlich geschützt – '
+                      'zum privaten Spielen kein Problem, zum Veröffentlichen schon.',
                 ]),
                 _Paragraph('Zum Beispiel mit dem Link threejs.org/examples/#webgl_materials_car:'),
                 _ExamplePrompt(
@@ -198,6 +202,23 @@ class HelpScreen extends StatelessWidget {
               ],
             ),
             _Section(
+              icon: Icons.list_alt,
+              title: 'Projekte, Medien-Ordner und Verknüpfungen',
+              children: [
+                _Bullets([
+                  'Tippe in der Liste auf ein Projekt: Starten, Weiterbauen, '
+                      'Medien-Ordner, Teilen, Verknüpfung, Größe oder Löschen.',
+                  'Im Medien-Ordner liegen Bilder, Sounds und 3D-Modelle des Spiels. '
+                      'Füge Fotos, Dateien vom Handy (z. B. .ogg, .mp3, .glb oder '
+                      'ZIP-Pakete) oder Dateien aus den Quellen hinzu.',
+                  'Neue Dateien nutzt das Spiel, sobald du es weiterbaust – z. B. mit '
+                      '„Nutze den Sound engine als Motorgeräusch“.',
+                  '„Verknüpfung auf dem Startbildschirm“ legt ein eigenes Icon an, das '
+                      'das Spiel direkt startet.',
+                ]),
+              ],
+            ),
+            _Section(
               icon: Icons.image_outlined,
               title: 'Eigene Grafiken',
               children: [
@@ -253,6 +274,8 @@ class HelpScreen extends StatelessWidget {
                   'Online-Mehrspieler oder Spielstände auf mehreren Geräten.',
                   'Spiele, die zur Laufzeit Inhalte aus dem Internet laden – '
                       'alles läuft offline im Spiel.',
+                  'Sounds per KI erzeugen klingt einfacher als echte Aufnahmen – für '
+                      'beste Ergebnisse Sounds aus den Quellen (z. B. Kenney) nutzen.',
                   'Aufwendige 3D-Spiele in Konsolenqualität.',
                 ]),
               ],
