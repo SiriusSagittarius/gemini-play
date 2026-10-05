@@ -1,10 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:in_app_purchase/in_app_purchase.dart' show ProductDetails;
 import 'package:promptplay/help_screen.dart';
+import 'package:promptplay/link_assets.dart';
 import 'package:promptplay/main.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -232,13 +236,13 @@ void main() {
 
   group('Größen, Weiterbauen und Grafiken', () {
     test('Kosten wie auf dem Server', () {
-      expect([for (final s in GameSize.values) s.credits], [1, 2, 3]);
+      expect([for (final s in GameSize.values) s.credits], [1, 2, 5]);
       expect(extendCost(40000), 1);
       expect(extendCost(40001), 2);
       expect(extendCost(100001), 3);
       expect(
         const GenerationRequest(prompt: 'x', size: GameSize.large).cost,
-        3,
+        5,
       );
       expect(GenerationRequest(prompt: 'x', baseHtml: 'a' * 50000).cost, 2);
     });
@@ -316,7 +320,7 @@ void main() {
 
     test('Restzeit: Standardwerte und Lernen aus echten Dauern', () async {
       expect(await AppStore.expectedSeconds('cloud', 'small'), 35);
-      expect(await AppStore.expectedSeconds('cloud', 'large'), 120);
+      expect(await AppStore.expectedSeconds('cloud', 'large'), 180);
       expect(await AppStore.expectedSeconds('groq', 'small'), 12);
       await AppStore.recordDuration('cloud', 'small', 80);
       expect(await AppStore.expectedSeconds('cloud', 'small'), 50);
@@ -350,7 +354,7 @@ void main() {
     test('Vorlagen kosten 1 Credit extra und landen in Anweisung und Nachricht', () {
       const sources = ['https://threejs.org/examples/'];
       const request = GenerationRequest(prompt: 'Rennspiel', size: GameSize.large, sources: sources);
-      expect(request.cost, 4);
+      expect(request.cost, 6);
       expect(
         GenerationRequest(prompt: 'x', baseHtml: 'a' * 50000, sources: sources).cost,
         3,
@@ -399,16 +403,169 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
       expect(cleaned, isNot(contains('importmap')));
       expect(cleaned, isNot(contains("import * as THREE")));
       expect(cleaned, contains('const { Scene, Mesh: M } = THREE;'));
-      // Addons gibt es nicht – die Zeile bleibt, damit der Fehler sichtbar wird.
-      expect(cleaned, contains("from 'three/addons/controls/OrbitControls.js'"));
+      // Addons stecken ebenfalls in THREE (fehlende sind dann nur undefined).
+      expect(cleaned, contains('const { OrbitControls } = THREE;'));
+      expect(cleaned, isNot(contains("from 'three/addons")));
       expect(GameLibraries.usesThree(cleaned), isTrue);
     });
 
-    test('Die eingebaute Bibliothek stellt THREE global bereit', () async {
+    test('Die eingebaute Bibliothek stellt THREE und PromptPlay bereit', () async {
       const game = '<html><head></head><body><script>new THREE.Scene()</script></body></html>';
       final html = await GameLibraries.inject(game);
       expect(html, contains('<script id="promptplay-three">var THREE='));
+      expect(html, contains('globalThis.PromptPlay'));
       expect(html, contains('SPDX-License-Identifier: MIT'));
+      expect(
+        GameLibraries.usesThree('<script>PromptPlay.loadModel("auto")</script>'),
+        isTrue,
+      );
+    });
+  });
+
+  group('Dateien aus Links', () {
+    /// Kleinste gültige GLB-Datei mit benannten Teilen.
+    Uint8List glb() {
+      final json = utf8.encode(jsonEncode({
+        'asset': {'version': '2.0'},
+        'nodes': [
+          {'name': 'body'},
+          {'name': 'wheel_fl'},
+          {'name': 'wheel_fl'},
+          {'name': ''},
+        ],
+        'materials': [
+          {'name': 'Body_Color'},
+        ],
+      }));
+      final padded = [...json, ...List.filled((4 - json.length % 4) % 4, 0x20)];
+      final header = ByteData(20)
+        ..setUint32(0, 0x46546C67, Endian.little) // „glTF“
+        ..setUint32(4, 2, Endian.little)
+        ..setUint32(8, 20 + padded.length, Endian.little)
+        ..setUint32(12, padded.length, Endian.little)
+        ..setUint32(16, 0x4E4F534A, Endian.little); // „JSON“
+      return Uint8List.fromList([...header.buffer.asUint8List(), ...padded]);
+    }
+
+    final hdr = Uint8List.fromList(utf8.encode('#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n'));
+    final png = Uint8List.fromList([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+
+    test('Beispiel-Links zeigen auf die Seite mit dem Code', () {
+      expect(
+        LinkAssetFetcher.normalize(Uri.parse('https://threejs.org/examples/#webgl_materials_car')).toString(),
+        'https://threejs.org/examples/webgl_materials_car.html',
+      );
+      expect(
+        LinkAssetFetcher.normalize(Uri.parse(
+          'https://github.com/mrdoob/three.js/blob/dev/examples/models/gltf/ferrari.glb',
+        )).toString(),
+        'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/ferrari.glb',
+      );
+      expect(
+        LinkAssetFetcher.normalize(Uri.parse('https://example.com/a.html#x')).toString(),
+        'https://example.com/a.html',
+      );
+    });
+
+    test('lädt Modelle, HDR und Texturen einer Beispielseite', () async {
+      const page = '''<div id="info"><a href="#">three.js</a> - car materials<br/>
+Ferrari 458 Italia model by <a href="x">vicent091036</a></div>
+<img src="files/logo.png">
+<script type="module">
+new HDRLoader().load('textures/equirectangular/venice_sunset_1k.hdr');
+loader.load('models/gltf/ferrari.glb');
+const ao = textureLoader.load('models/gltf/ferrari_ao.png');
+const road = textureLoader.load('textures/asphalt.png');
+gltf.load("models/gltf/scene.gltf");
+</script>''';
+      final requested = <String>[];
+      final client = MockClient((request) async {
+        requested.add(request.url.toString());
+        return switch (request.url.path) {
+          '/examples/webgl_materials_car.html' => http.Response(page, 200),
+          '/examples/models/gltf/ferrari.glb' => http.Response.bytes(glb(), 200),
+          '/examples/textures/equirectangular/venice_sunset_1k.hdr' => http.Response.bytes(hdr, 200),
+          '/examples/textures/asphalt.png' => http.Response.bytes(png, 200),
+          _ => http.Response('nicht gefunden', 404),
+        };
+      });
+
+      final result = await LinkAssetFetcher(client: client)
+          .fetch('https://threejs.org/examples/#webgl_materials_car');
+
+      expect([for (final f in result.files) f.fileName],
+          ['ferrari.glb', 'venice_sunset_1k.hdr', 'asphalt.png']);
+      expect([for (final f in result.files) f.mimeType], [kModelMimeType, kHdrMimeType, 'image/png']);
+      expect(result.files.first.info, contains('benannte Teile: body, wheel_fl'));
+      expect(result.files.first.info, contains('Materialien: Body_Color'));
+      expect(result.credit, 'Ferrari 458 Italia model by vicent091036');
+      // Schattenbilder und .gltf werden nicht übernommen.
+      expect(result.skipped, [
+        'ferrari_ao.png: Schattenbild – das Spiel erzeugt eigene Schatten',
+        'scene.gltf: .gltf wird nicht unterstützt, nur .glb',
+      ]);
+      expect(requested, isNot(contains(endsWith('ferrari_ao.png'))));
+      // Logos auf normalen Seiten werden nicht übernommen.
+      expect(requested, isNot(contains(endsWith('logo.png'))));
+    });
+
+    test('direkter Link, unbekanntes Format und zu große Dateien', () async {
+      final client = MockClient((request) async => switch (request.url.path) {
+            '/auto.glb' => http.Response.bytes(glb(), 200),
+            '/kaputt.glb' => http.Response('kein Modell', 200),
+            '/riesig.glb' => http.Response.bytes(
+                Uint8List(LinkAssetFetcher.maxFileBytes + 1), 200),
+            _ => http.Response('', 404),
+          });
+      final fetcher = LinkAssetFetcher(client: client);
+
+      final direct = await fetcher.fetch('https://example.com/auto.glb');
+      expect(direct.files.single.mimeType, kModelMimeType);
+      await expectLater(
+        fetcher.fetch('https://example.com/kaputt.glb'),
+        throwsA(isA<LinkAssetException>().having((e) => e.message, 'message', 'unbekanntes Dateiformat')),
+      );
+      await expectLater(
+        fetcher.fetch('https://example.com/riesig.glb'),
+        throwsA(isA<LinkAssetException>().having((e) => e.message, 'message', contains('größer als'))),
+      );
+      await expectLater(
+        fetcher.fetch('https://example.com/fehlt.html'),
+        throwsA(isA<LinkAssetException>()),
+      );
+    });
+
+    test('Dateien aus Links gehen nur als Beschreibung an die KI', () {
+      const own = GameImage(name: 'huhn', mimeType: 'image/png', data: 'AAA');
+      const model = GameImage(
+        name: 'ferrari',
+        mimeType: kModelMimeType,
+        data: 'BBB',
+        source: 'https://threejs.org/examples/models/gltf/ferrari.glb',
+        info: '3D-Modell (glTF); benannte Teile: wheel_fl',
+      );
+      const texture = GameImage(
+        name: 'ferrari_ao',
+        mimeType: 'image/png',
+        data: 'CCC',
+        source: 'https://threejs.org/examples/models/gltf/ferrari_ao.png',
+      );
+      const request = GenerationRequest(prompt: 'Rennspiel', images: [own, model, texture]);
+
+      expect([for (final i in request.ownImages) i.name], ['huhn']);
+      expect([for (final i in request.linkFiles) i.name], ['ferrari', 'ferrari_ao']);
+      final instruction = buildSystemInstruction(request);
+      expect(instruction, contains('EINGEBETTETE DATEIEN'));
+      expect(instruction, contains('- 3D-Modell "ferrari": 3D-Modell (glTF); benannte Teile: wheel_fl'));
+      expect(instruction, contains('- Textur "ferrari_ao"'));
+      expect(instruction, contains('PromptPlay.loadModel("NAME")'));
+      expect(instruction, contains('Der Nutzer stellt diese Bilder bereit: huhn.'));
+
+      final restored = GameImage.fromJson(jsonDecode(jsonEncode(model.toJson())) as Map<String, dynamic>);
+      expect(restored.source, model.source);
+      expect(restored.info, model.info);
+      expect(restored.isModel, isTrue);
+      expect(restored.isOwnImage, isFalse);
     });
   });
 
@@ -501,7 +658,9 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     await tester.pumpAndSettle();
 
     expect(find.text(kImagesNeedGemini), findsOneWidget);
-    expect(find.text(kSourcesNeedGemini), findsOneWidget);
+    // Dateien aus Links gehen auch mit Groq, nur das Lesen der Seite nicht.
+    expect(find.textContaining('Mit Groq liest die KI die Seite nicht mit'), findsOneWidget);
+    expect(find.text('Dateien übernehmen'), findsOneWidget);
     expect(find.text('Bilder hinzufügen'), findsNothing);
     expect(find.text('Klein'), findsOneWidget);
     expect(find.text('Groß'), findsOneWidget);
@@ -518,8 +677,8 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     expect(find.text('Bilder hinzufügen'), findsOneWidget);
     expect(find.text(kImagesNeedGemini), findsNothing);
     expect(find.text('Kindgerecht (Familien-Modus)'), findsOneWidget);
-    expect(find.text('Vorlagen aus dem Netz (optional)'), findsOneWidget);
-    expect(find.text(kSourcesNeedGemini), findsNothing);
+    expect(find.text('Vorlagen und 3D-Modelle aus dem Netz (optional)'), findsOneWidget);
+    expect(find.textContaining('Gemini liest die Seite zusätzlich als Vorlage'), findsOneWidget);
 
     // Ungültiger Link: Fehlermeldung statt Anfrage.
     await tester.enterText(find.byType(TextField).first, 'Ein 3D-Rennspiel');

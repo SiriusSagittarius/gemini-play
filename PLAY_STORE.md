@@ -58,7 +58,7 @@ Diese Datei enthält alles, was du in der [Play Console](https://play.google.com
 > • Weiterbauen: Spiele über Tage und Wochen erweitern, mit Versionen zum Zurückgehen
 > • Eigene Grafiken: deine Bilder als Spielfiguren oder Hintergrund
 > • 3D-Spiele: Three.js ist eingebaut – z. B. Autorennen mit Kamera hinter dem Auto
-> • Vorlagen aus dem Netz: Gib Links an, die die KI als Vorlage nimmt
+> • Echte 3D-Modelle aus dem Netz: Link zu einem threejs.org-Beispiel oder einer .glb-Datei angeben – die App baut Modell, Licht und Texturen ins Spiel ein
 > • Hilfe mit Schritt-für-Schritt-Beispielen
 > • Oder unbegrenzt erstellen mit einem eigenen kostenlosen API-Key von Google Gemini oder Groq
 >

@@ -29,6 +29,7 @@ const {
   buildGeminiRequest,
   costForExtend,
   parseSources,
+  parseFiles,
   cleanHtml,
   extractTitle,
 } = require("./html");
@@ -51,6 +52,14 @@ const GEMINI_API_KEY = defineSecret("GEMINI_API_KEY");
 const REGION = "europe-west3"; // Frankfurt – muss in der App identisch sein.
 // Fest gewählt statt „gemini-flash-latest“, damit Kosten pro Credit planbar bleiben.
 const GEMINI_MODEL = "gemini-3.8-flash";
+// Für „Groß“: besserer Spielcode, ca. 3× so teuer pro Token. Mittleres Denken
+// (getestet: Kamera, Steuerung und Modelle stimmen, ca. 0,25 $ pro Spiel statt
+// 0,12 $ bei LOW) – bleibt deutlich unter dem Preis von 5 Credits.
+const GEMINI_PRO_MODEL = "gemini-3.1-pro-preview";
+const PRO_THINKING_LEVEL = "MEDIUM";
+const MAX_OUTPUT_TOKENS = 65_536;
+// Preis von „Groß“, wenn Pro nicht verfügbar ist und Flash einspringt.
+const FLASH_LARGE_COST = 3;
 const FREE_CREDITS = 2;
 const MAX_PROMPT_LENGTH = 4000;
 const MAX_IMAGES = 6;
@@ -58,9 +67,10 @@ const MAX_IMAGE_BASE64 = 900_000; // ca. 650 KB Bilddaten
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 // Wartezeiten vor erneuten Versuchen, wenn Gemini überlastet ist.
 const RETRY_DELAYS_MS = [3_000, 8_000, 15_000];
-const FUNCTION_TIMEOUT_SECONDS = 300;
+// Gemini Pro braucht für große Spiele mehrere Minuten.
+const FUNCTION_TIMEOUT_SECONDS = 540;
 // Kürzer als das Function-Timeout, damit die Rückbuchung sicher noch läuft.
-const GEMINI_TIMEOUT_MS = 240_000;
+const GEMINI_TIMEOUT_MS = 480_000;
 
 const baseOptions = {
   region: REGION,
@@ -141,7 +151,17 @@ exports.generateGame = onCall(
 
     // 2. Generieren – bei jedem Fehler die Credits zurückbuchen.
     try {
-      const html = await generateHtml(job);
+      const { html, model } = await generateHtml(job);
+      // Musste „Groß“ auf Flash ausweichen, gibt es den Pro-Aufpreis zurück.
+      if (model !== job.model && job.cost > job.fallbackCost) {
+        await refundCredits(userRef, uid, job.cost - job.fallbackCost);
+        return {
+          html,
+          title: extractTitle(html),
+          creditsLeft: creditsLeft + job.cost - job.fallbackCost,
+          cost: job.fallbackCost,
+        };
+      }
       return { html, title: extractTitle(html), creditsLeft, cost: job.cost };
     } catch (error) {
       await refundCredits(userRef, uid, job.cost);
@@ -204,17 +224,36 @@ function parseGenerationRequest(data) {
   });
 
   let sources;
+  let files;
   try {
     sources = parseSources(data.sources);
+    files = parseFiles(data.files);
   } catch (error) {
     throw new HttpsError("invalid-argument", error.message);
   }
+  if (files.some((file) => names.has(file.name))) {
+    throw new HttpsError("invalid-argument", "Ein Dateiname kommt doppelt vor.");
+  }
 
-  const cost =
-    (baseHtml ? costForExtend(baseHtml.length) : SIZES[size].cost) +
-    (sources.length > 0 ? SOURCE_COST : 0);
+  // „Groß“ baut Gemini Pro; Weiterbauen bleibt bei Flash.
+  const usePro = !baseHtml && SIZES[size].pro === true;
+  const sourceCost = sources.length > 0 ? SOURCE_COST : 0;
+  const cost = (baseHtml ? costForExtend(baseHtml.length) : SIZES[size].cost) + sourceCost;
+  // Was „Groß“ mit Flash kosten würde, falls Pro nicht verfügbar ist.
+  const fallbackCost = usePro ? FLASH_LARGE_COST + sourceCost : cost;
   const kidSafe = data.kidSafe === true;
-  return { prompt, size, images, sources, baseHtml, kidSafe, cost };
+  return {
+    prompt,
+    size,
+    images,
+    files,
+    sources,
+    baseHtml,
+    kidSafe,
+    cost,
+    fallbackCost,
+    model: usePro ? GEMINI_PRO_MODEL : GEMINI_MODEL,
+  };
 }
 
 exports.verifyPurchase = onCall({ ...baseOptions, maxInstances: 10 }, async (request) => {
@@ -338,31 +377,59 @@ exports.deleteAccount = onCall(baseOptions, async (request) => {
   return { deleted: true };
 });
 
+/**
+ * Erzeugt das Spiel mit job.model. Ist Gemini Pro nicht verfügbar (kein
+ * Kontingent, z. B. ohne Abrechnung), springt Flash ein. Liefert { html, model }.
+ */
 async function generateHtml(job) {
   const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY.value() });
-  const { systemInstruction, parts, safetySettings, tools } = buildGeminiRequest(job);
   const deadline = Date.now() + GEMINI_TIMEOUT_MS;
 
+  let model = job.model;
+  let request = buildGeminiRequest(job);
+  let recitationRetried = false;
   let response;
   for (let attempt = 0; ; attempt++) {
     try {
+      const { systemInstruction, parts, safetySettings, tools } = request;
       response = await ai.models.generateContent({
-        model: GEMINI_MODEL,
+        model,
         contents: [{ role: "user", parts }],
         config: {
           systemInstruction,
           safetySettings,
+          maxOutputTokens: MAX_OUTPUT_TOKENS,
+          ...(model === GEMINI_PRO_MODEL ? { thinkingConfig: { thinkingLevel: PRO_THINKING_LEVEL } } : {}),
           ...(tools ? { tools } : {}),
           abortSignal: AbortSignal.timeout(Math.max(1_000, deadline - Date.now())),
         },
       });
+      // Gemini bricht ab, wenn es bekannten Code wörtlich wiedergeben würde
+      // (im Test vor allem mit Vorlagen-Links). Dann einmal neu versuchen –
+      // ohne das Lesen der Seiten; die übernommenen Dateien bleiben.
+      if (
+        response.candidates?.[0]?.finishReason === "RECITATION" &&
+        !recitationRetried &&
+        Date.now() < deadline - 120_000
+      ) {
+        logger.warn("Zu wörtliche Wiedergabe, neuer Versuch", { model, withSources: Boolean(request.tools) });
+        recitationRetried = true;
+        request = buildGeminiRequest({ ...job, sources: [] });
+        continue;
+      }
       break;
     } catch (error) {
+      const status = error?.status;
+      if (model === GEMINI_PRO_MODEL && [403, 404, 429].includes(status)) {
+        logger.warn("Gemini Pro nicht verfügbar, Flash springt ein", { status });
+        model = GEMINI_MODEL;
+        continue;
+      }
       // Bei Überlastung kurz warten und erneut versuchen, solange Zeit bleibt.
       const delay = RETRY_DELAYS_MS[attempt];
-      const retriable = [429, 500, 503].includes(error?.status);
+      const retriable = [429, 500, 503].includes(status);
       if (retriable && delay && Date.now() + delay < deadline - 60_000) {
-        logger.warn("Gemini überlastet, neuer Versuch", { status: error.status, attempt: attempt + 1 });
+        logger.warn("Gemini überlastet, neuer Versuch", { status, attempt: attempt + 1 });
         await new Promise((resolve) => setTimeout(resolve, delay));
         continue;
       }
@@ -391,6 +458,12 @@ async function generateHtml(job) {
       "Die Antwort war zu lang und wurde abgeschnitten. Deine Credits wurden zurückgebucht – bitte vereinfache den Wunsch oder wähle eine kleinere Größe.",
     );
   }
+  if (response.candidates?.[0]?.finishReason === "RECITATION") {
+    throw new HttpsError(
+      "failed-precondition",
+      "Gemini hat abgebrochen, weil die Antwort fremden Code zu wörtlich enthalten hätte. Deine Credits wurden zurückgebucht – bitte erneut versuchen oder den Wunsch anders formulieren.",
+    );
+  }
 
   const html = cleanHtml(response.text ?? "");
   if (!html) {
@@ -405,11 +478,12 @@ async function generateHtml(job) {
     status: entry.urlRetrievalStatus,
   }));
   logger.info("Generiert", {
+    model,
     usage: response.usageMetadata,
     kb: Math.round(html.length / 1024),
     ...(urls ? { urls } : {}),
   });
-  return html;
+  return { html, model };
 }
 
 function describeGeminiError(error) {

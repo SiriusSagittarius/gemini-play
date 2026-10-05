@@ -122,19 +122,22 @@ class HelpScreen extends StatelessWidget {
                   'Für 3D-Spiele ist Three.js fest eingebaut – die KI nutzt es '
                       'automatisch, wenn du ein 3D-Spiel möchtest. Das läuft '
                       'auch offline.',
-                  'Unter „Vorlagen aus dem Netz“ kannst du bis zu 3 Links '
-                      'angeben, z. B. ein Beispiel von threejs.org. Die KI liest '
-                      'die Seite und nimmt sie als Vorlage.',
-                  'Fremde 3D-Modelle oder Bilder baut die KI selbst nach, statt '
-                      'sie zu kopieren – so bleibt dein Spiel offline spielbar '
-                      'und frei von fremden Rechten.',
-                  'Vorlagen-Links funktionieren nur mit Gemini und kosten in '
-                      'der PromptPlay Cloud 1 Credit extra.',
+                  'Echte 3D-Modelle: Trag unter „Vorlagen und 3D-Modelle aus dem '
+                      'Netz“ einen Link ein, z. B. ein Beispiel von threejs.org, '
+                      'und tippe auf „Dateien übernehmen“. Die App lädt Modelle '
+                      '(.glb), HDR-Licht und Texturen herunter und baut sie ins '
+                      'Spiel ein.',
+                  'Mit Gemini liest die KI die Seite zusätzlich als Vorlage – in '
+                      'der PromptPlay Cloud kostet das 1 Credit extra.',
+                  'Verwende nur Modelle, die du nutzen darfst – die Lizenz steht '
+                      'meist auf der Herkunftsseite. Den Urheber blendet das Spiel '
+                      'im Startbildschirm ein.',
                 ]),
+                _Paragraph('Zum Beispiel mit dem Link threejs.org/examples/#webgl_materials_car:'),
                 _ExamplePrompt(
-                  'Ein 3D-Autorennen: Auto aus Grundformen mit Rädern und '
-                  'Scheinwerfern, Kamera hinter dem Auto, Lenken per Touch links '
-                  'und rechts, Rundenzeit und 3 Gegner.',
+                  'Ein 3D-Rennspiel mit dem Ferrari: Kamera hinter dem Auto, Gas '
+                  'und Lenken per Touch, die Räder drehen sich, Rundstrecke mit '
+                  'Leitplanken, Rundenzeit und 3 Gegner.',
                 ),
               ],
             ),
@@ -167,8 +170,8 @@ class HelpScreen extends StatelessWidget {
                 _Bullets([
                   'Klein – 1 Credit: ein Spielprinzip, z. B. Tetris, Snake, Quiz.',
                   'Mittel – 2 Credits: mehrere Level, Menü und Effekte.',
-                  'Groß – 3 Credits: umfangreich, z. B. ein Rennspiel mit '
-                      'mehreren Strecken.',
+                  'Groß – 5 Credits: umfangreich, z. B. ein 3D-Rennspiel mit '
+                      'mehreren Strecken – gebaut vom stärksten KI-Modell (Gemini Pro).',
                   'Weiterbauen kostet 1 bis 3 Credits, je nachdem wie groß das '
                       'Spiel schon ist.',
                   'Vorlagen-Links kosten 1 Credit extra.',
@@ -222,8 +225,8 @@ class HelpScreen extends StatelessWidget {
                   'Mit eigenem kostenlosen Key von Gemini oder Groq erstellst du '
                       'unbegrenzt – Einstellungen → „Key holen“.',
                   'Groq ist sehr schnell, eignet sich aber nur für kleinere '
-                      'Spiele und kann keine eigenen Grafiken und keine '
-                      'Vorlagen-Links.',
+                      'Spiele, kann keine eigenen Fotos ansehen und keine Seiten '
+                      'lesen. Übernommene 3D-Modelle funktionieren aber.',
                 ]),
               ],
             ),
