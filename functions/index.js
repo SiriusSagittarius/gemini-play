@@ -63,6 +63,7 @@ const FLASH_LARGE_COST = 3;
 const FREE_CREDITS = 2;
 const MAX_PROMPT_LENGTH = 4000;
 const MAX_IMAGES = 6;
+const MAX_REFERENCES = 4;
 const MAX_IMAGE_BASE64 = 900_000; // ca. 650 KB Bilddaten
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 // Wartezeiten vor erneuten Versuchen, wenn Gemini überlastet ist.
@@ -204,24 +205,28 @@ function parseGenerationRequest(data) {
     throw new HttpsError("invalid-argument", "Unbekannte Größe.");
   }
 
-  const rawImages = data.images ?? [];
-  if (!Array.isArray(rawImages) || rawImages.length > MAX_IMAGES) {
-    throw new HttpsError("invalid-argument", `Höchstens ${MAX_IMAGES} Bilder pro Spiel.`);
-  }
+  // Eigene Bilder (kommen ins Spiel) und Referenzbilder (nur zum Ansehen).
   const names = new Set();
-  const images = rawImages.map((image) => {
-    const name = typeof image?.name === "string" ? image.name : "";
-    const valid =
-      /^[a-z0-9_-]{1,30}$/.test(name) &&
-      !names.has(name) &&
-      IMAGE_TYPES.has(image?.mimeType) &&
-      typeof image?.data === "string" &&
-      image.data.length > 0 &&
-      image.data.length <= MAX_IMAGE_BASE64;
-    if (!valid) throw new HttpsError("invalid-argument", "Ein Bild ist ungültig oder zu groß.");
-    names.add(name);
-    return { name, mimeType: image.mimeType, data: image.data };
-  });
+  const parseImages = (raw, max, label) => {
+    if (!Array.isArray(raw) || raw.length > max) {
+      throw new HttpsError("invalid-argument", `Höchstens ${max} ${label} pro Spiel.`);
+    }
+    return raw.map((image) => {
+      const name = typeof image?.name === "string" ? image.name : "";
+      const valid =
+        /^[a-z0-9_-]{1,30}$/.test(name) &&
+        !names.has(name) &&
+        IMAGE_TYPES.has(image?.mimeType) &&
+        typeof image?.data === "string" &&
+        image.data.length > 0 &&
+        image.data.length <= MAX_IMAGE_BASE64;
+      if (!valid) throw new HttpsError("invalid-argument", "Ein Bild ist ungültig oder zu groß.");
+      names.add(name);
+      return { name, mimeType: image.mimeType, data: image.data };
+    });
+  };
+  const images = parseImages(data.images ?? [], MAX_IMAGES, "Bilder");
+  const references = parseImages(data.references ?? [], MAX_REFERENCES, "Referenzbilder");
 
   let sources;
   let files;
@@ -246,6 +251,7 @@ function parseGenerationRequest(data) {
     prompt,
     size,
     images,
+    references,
     files,
     sources,
     baseHtml,

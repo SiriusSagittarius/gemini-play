@@ -2,7 +2,21 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:archive/archive.dart';
 import 'package:http/http.dart' as http;
+
+const kModelMimeType = 'model/gltf-binary';
+const kGltfJsonMimeType = 'model/gltf+json';
+const kHdrMimeType = 'image/vnd.radiance';
+const kZipMimeType = 'application/zip';
+
+/// Art einer eingebetteten Datei, wie sie die KI und der Server kennen.
+String assetKind(String mimeType) {
+  if (mimeType == kModelMimeType || mimeType == kGltfJsonMimeType) return 'model';
+  if (mimeType == kHdrMimeType) return 'environment';
+  if (mimeType.startsWith('audio/')) return 'sound';
+  return 'texture';
+}
 
 /// Datei, die die App aus einem Link übernommen hat.
 class LinkFile {
@@ -24,7 +38,7 @@ class LinkFile {
 }
 
 class LinkFetchResult {
-  const LinkFetchResult({required this.files, this.credit, this.skipped = const []});
+  const LinkFetchResult({this.files = const [], this.credit, this.skipped = const [], this.archive});
 
   final List<LinkFile> files;
 
@@ -33,6 +47,9 @@ class LinkFetchResult {
 
   /// Gefundene, aber nicht übernommene Dateien mit Grund.
   final List<String> skipped;
+
+  /// ZIP-Paket (z. B. von Kenney) – der Nutzer wählt daraus aus.
+  final LinkArchive? archive;
 }
 
 class LinkAssetException implements Exception {
@@ -44,9 +61,214 @@ class LinkAssetException implements Exception {
   String toString() => message;
 }
 
-/// Lädt 3D-Modelle (.glb), HDR-Umgebungen und Texturen aus einem Link: direkt
-/// verlinkte Dateien oder alle Dateien, die eine Seite (z. B. ein Beispiel auf
-/// threejs.org) lädt. Die KI selbst kann nichts herunterladen – das macht die App.
+/// Auswählbare Datei in einem ZIP-Paket.
+class ArchiveItem {
+  const ArchiveItem({
+    required this.path,
+    required this.mimeType,
+    required this.size,
+    this.previewPath,
+  });
+
+  final String path;
+  final String mimeType;
+  final int size;
+
+  /// Vorschaubild im Paket (z. B. Kenney: Side/raceCarRed.png).
+  final String? previewPath;
+
+  String get fileName => path.split('/').last;
+  String get kind => assetKind(mimeType);
+}
+
+/// Geöffnetes ZIP-Paket mit den Dateien, die sich ins Spiel übernehmen lassen.
+class LinkArchive {
+  LinkArchive._(this.url, this.fileName, this._archive, this.items, this.license);
+
+  final String url;
+  final String fileName;
+  final Archive _archive;
+  final List<ArchiveItem> items;
+
+  /// Lizenz aus der beiliegenden License.txt (z. B. „Creative Commons Zero, CC0“).
+  final String? license;
+
+  static const maxItems = 600;
+  static final _hidden = RegExp(r'(^|/)(__MACOSX|\.)');
+  static final _previewFile = RegExp(r'^(preview|sample|thumbnail)\.(png|jpe?g|webp)$');
+
+  /// Öffnet ein ZIP und bietet Modelle, HDR, Sounds und Bilder zur Auswahl an.
+  /// Vorschaubilder von Modellen werden zugeordnet statt einzeln angeboten.
+  static LinkArchive open(Uint8List bytes, {required String url, required String fileName}) {
+    final Archive archive;
+    try {
+      archive = ZipDecoder().decodeBytes(bytes);
+    } catch (_) {
+      throw const LinkAssetException('Das ZIP-Paket ist beschädigt.');
+    }
+
+    final files = [
+      for (final file in archive.files)
+        if (file.isFile && !_hidden.hasMatch(file.name)) file,
+    ];
+    String base(String path) =>
+        path.split('/').last.replaceFirst(RegExp(r'\.[^.]*$'), '').toLowerCase();
+
+    final models = {
+      for (final file in files)
+        if (_mimeFromName(file.name) case final mime? when assetKind(mime) == 'model') base(file.name),
+    };
+    final previews = <String, String>{};
+    final items = <ArchiveItem>[];
+    for (final file in files) {
+      final mime = _mimeFromName(file.name);
+      if (mime == null) continue;
+      if (assetKind(mime) == 'texture' && models.isNotEmpty) {
+        final name = base(file.name);
+        final model = models.where((m) => name == m || name.startsWith('${m}_')).firstOrNull;
+        // Bilder neben Modellen sind meist Vorschauen: zuordnen statt anbieten.
+        if (model != null) {
+          final isSide = file.name.toLowerCase().contains('side');
+          if (!previews.containsKey(model) || isSide) previews[model] = file.name;
+          continue;
+        }
+        if (_previewFile.hasMatch(file.name.split('/').last.toLowerCase())) continue;
+      }
+      items.add(ArchiveItem(path: file.name, mimeType: mime, size: file.size));
+    }
+
+    const order = ['model', 'environment', 'sound', 'texture'];
+    items.sort((a, b) {
+      final kind = order.indexOf(a.kind).compareTo(order.indexOf(b.kind));
+      return kind != 0 ? kind : a.path.toLowerCase().compareTo(b.path.toLowerCase());
+    });
+    if (items.isEmpty) {
+      throw const LinkAssetException(
+        'Im ZIP-Paket sind keine 3D-Modelle, HDR-Dateien, Sounds oder Bilder.',
+      );
+    }
+
+    return LinkArchive._(
+      url,
+      fileName,
+      archive,
+      [
+        for (final item in items.take(maxItems))
+          item.kind == 'model' && previews[base(item.path)] != null
+              ? ArchiveItem(
+                  path: item.path,
+                  mimeType: item.mimeType,
+                  size: item.size,
+                  previewPath: previews[base(item.path)],
+                )
+              : item,
+      ],
+      _license(files),
+    );
+  }
+
+  static String? _license(List<ArchiveFile> files) {
+    final file = files.where((f) => RegExp(r'(^|/)licen[cs]e[^/]*\.txt$', caseSensitive: false).hasMatch(f.name)).firstOrNull;
+    if (file == null) return null;
+    final text = utf8.decode(file.readBytes() ?? const [], allowMalformed: true);
+    final line = text
+        .split('\n')
+        .map((l) => l.trim())
+        .where((l) => RegExp(r'cc0|creative commons|public domain|licen[cs]e', caseSensitive: false).hasMatch(l))
+        .firstOrNull;
+    if (line == null || line.isEmpty) return null;
+    return line.length > 200 ? '${line.substring(0, 197)}…' : line;
+  }
+
+  static String? _mimeFromName(String path) {
+    final ext = path.toLowerCase().split('.').last;
+    return switch (ext) {
+      'glb' => kModelMimeType,
+      'gltf' => kGltfJsonMimeType,
+      'hdr' => kHdrMimeType,
+      'png' => 'image/png',
+      'jpg' || 'jpeg' => 'image/jpeg',
+      'webp' => 'image/webp',
+      'ogg' => 'audio/ogg',
+      'mp3' => 'audio/mpeg',
+      'wav' => 'audio/wav',
+      _ => null,
+    };
+  }
+
+  Uint8List? read(String path) => _archive.find(path)?.readBytes();
+
+  /// Vorschau für die Auswahlliste: zugeordnetes Bild oder das Bild selbst.
+  Uint8List? preview(ArchiveItem item) {
+    if (item.previewPath != null) return read(item.previewPath!);
+    return item.kind == 'texture' ? read(item.path) : null;
+  }
+
+  /// Packt die gewählten Dateien aus. glTF-Dateien bekommen ihre Buffer und
+  /// Texturen eingebettet, damit sie als eine Datei im Spiel liegen.
+  List<LinkFile> extract(Iterable<ArchiveItem> selected) => [
+        for (final item in selected) _extract(item),
+      ];
+
+  LinkFile _extract(ArchiveItem item) {
+    var bytes = read(item.path);
+    if (bytes == null) throw LinkAssetException('${item.fileName}: nicht lesbar');
+    String info;
+    if (item.mimeType == kGltfJsonMimeType) {
+      final json = jsonDecode(utf8.decode(bytes));
+      if (json is! Map<String, dynamic>) throw LinkAssetException('${item.fileName}: kein glTF');
+      _embedResources(json, item.path);
+      bytes = Uint8List.fromList(utf8.encode(jsonEncode(json)));
+      info = LinkAssetFetcher.describeGltf(json);
+    } else {
+      info = LinkAssetFetcher.describe(item.mimeType, bytes, item.fileName);
+    }
+    return LinkFile(
+      url: '$url#${item.path}',
+      fileName: item.fileName,
+      mimeType: item.mimeType,
+      bytes: bytes,
+      info: license == null ? info : '$info; Lizenz: $license',
+    );
+  }
+
+  void _embedResources(Map<String, dynamic> json, String gltfPath) {
+    final dir = gltfPath.contains('/') ? gltfPath.substring(0, gltfPath.lastIndexOf('/') + 1) : '';
+    for (final key in ['buffers', 'images']) {
+      for (final entry in json[key] as List? ?? const []) {
+        if (entry is! Map || entry['uri'] is! String) continue;
+        final uri = entry['uri'] as String;
+        if (uri.startsWith('data:')) continue;
+        final path = _resolve(dir, Uri.decodeComponent(uri));
+        final data = read(path);
+        if (data == null) {
+          throw LinkAssetException('${gltfPath.split('/').last}: $uri fehlt im Paket');
+        }
+        final mime = key == 'buffers'
+            ? 'application/octet-stream'
+            : LinkAssetFetcher.detectMimeType(data) ?? 'image/png';
+        entry['uri'] = 'data:$mime;base64,${base64Encode(data)}';
+      }
+    }
+  }
+
+  static String _resolve(String dir, String relative) {
+    final parts = <String>[];
+    for (final part in '$dir$relative'.split('/')) {
+      if (part == '..') {
+        if (parts.isNotEmpty) parts.removeLast();
+      } else if (part.isNotEmpty && part != '.') {
+        parts.add(part);
+      }
+    }
+    return parts.join('/');
+  }
+}
+
+/// Lädt 3D-Modelle (.glb), HDR-Umgebungen, Sounds und Texturen aus einem Link:
+/// direkt verlinkte Dateien, ZIP-Pakete (z. B. von Kenney) oder alle Dateien,
+/// die eine Seite (z. B. ein Beispiel auf threejs.org) lädt. Die KI selbst kann
+/// nichts herunterladen – das macht die App.
 class LinkAssetFetcher {
   LinkAssetFetcher({http.Client? client}) : _client = client ?? http.Client();
 
@@ -54,12 +276,13 @@ class LinkAssetFetcher {
 
   static const maxFiles = 6;
   static const maxFileBytes = 10 * 1024 * 1024;
+  static const maxArchiveBytes = 60 * 1024 * 1024;
   static const maxTotalBytes = 20 * 1024 * 1024;
   static const _maxPageBytes = 3 * 1024 * 1024;
-  static const _timeout = Duration(seconds: 60);
+  static const _timeout = Duration(seconds: 90);
 
   static final _fileRef = RegExp(
-    r'''["'`]([^"'`\s<>]+?\.(?:glb|hdr|png|jpe?g|webp))(?:\?[^"'`\s<>]*)?["'`]''',
+    r'''["'`]([^"'`\s<>]+?\.(?:glb|hdr|png|jpe?g|webp|ogg|mp3|wav|zip))(?:\?[^"'`\s<>]*)?["'`]''',
     caseSensitive: false,
   );
   static final _gltfRef = RegExp(r'''["'`]([^"'`\s<>]+?\.gltf)["'`]''', caseSensitive: false);
@@ -67,7 +290,7 @@ class LinkAssetFetcher {
     r'''<div[^>]*id\s*=\s*["']info["'][^>]*>([\s\S]*?)</div>''',
     caseSensitive: false,
   );
-  static final _modelOrHdr = RegExp(r'\.(glb|hdr)$', caseSensitive: false);
+  static final _directFile = RegExp(r'\.(glb|hdr|png|jpe?g|webp|ogg|mp3|wav|zip)$', caseSensitive: false);
   static final _shadowTexture = RegExp(r'(^|[_-])(ao|shadow)([_.-]|$)', caseSensitive: false);
 
   /// Bilder auf normalen Webseiten sind meist Logos und Symbole – übernommen
@@ -97,12 +320,11 @@ class LinkAssetFetcher {
 
   Future<LinkFetchResult> fetch(String link) async {
     final uri = normalize(Uri.parse(link.trim()));
-    if (_modelOrHdr.hasMatch(uri.path) || _isImagePath(uri.path)) {
-      return LinkFetchResult(files: [await _download(uri)]);
-    }
+    if (_directFile.hasMatch(uri.path)) return _fetchFile(uri);
 
     final html = utf8.decode(await _get(uri, _maxPageBytes), allowMalformed: true);
-    final models = <Uri>[], environments = <Uri>[], textures = <Uri>[];
+    final models = <Uri>[], environments = <Uri>[], sounds = <Uri>[], textures = <Uri>[];
+    final archives = <Uri>[];
     final skippedShadows = <String>[];
     for (final match in _fileRef.allMatches(html)) {
       final ref = match.group(1)!;
@@ -113,35 +335,41 @@ class LinkAssetFetcher {
       // Schattenbilder (z. B. ferrari_ao.png) setzte die KI im Test als
       // leuchtende oder riesige dunkle Fläche ein – die Spiele werfen ohnehin
       // echte Schatten.
-      if (_shadowTexture.hasMatch(_fileName(url))) {
+      if (_shadowTexture.hasMatch(_fileName(url)) && !path.endsWith('.zip')) {
         final note = '${_fileName(url)}: Schattenbild – das Spiel erzeugt eigene Schatten';
         if (!skippedShadows.contains(note)) skippedShadows.add(note);
         continue;
       }
-      final bucket = path.endsWith('.glb')
-          ? models
-          : path.endsWith('.hdr')
-              ? environments
-              : _textureFolder.hasMatch(path)
-                  ? textures
-                  : null;
+      final bucket = switch (path.split('.').last) {
+        'glb' => models,
+        'hdr' => environments,
+        'ogg' || 'mp3' || 'wav' => sounds,
+        'zip' => archives,
+        _ => _textureFolder.hasMatch(path) ? textures : null,
+      };
       if (bucket != null && !bucket.contains(url)) bucket.add(url);
+    }
+
+    // Seiten mit Download-Paket (z. B. Kenney): das Paket zur Auswahl öffnen.
+    if (models.isEmpty && environments.isEmpty && archives.isNotEmpty) {
+      final result = await _fetchFile(archives.first);
+      return LinkFetchResult(archive: result.archive, files: result.files, credit: extractCredit(html));
     }
 
     final skipped = [
       ...skippedShadows,
       for (final match in _gltfRef.allMatches(html))
-        '${_fileName(uri.resolve(match.group(1)!))}: .gltf wird nicht unterstützt, nur .glb',
+        '${_fileName(uri.resolve(match.group(1)!))}: .gltf bitte als ZIP-Paket übernehmen',
     ];
     final files = <LinkFile>[];
     var total = 0;
-    for (final url in [...models, ...environments, ...textures]) {
+    for (final url in [...models, ...environments, ...sounds, ...textures]) {
       if (files.length >= maxFiles) {
         skipped.add('${_fileName(url)}: höchstens $maxFiles Dateien pro Link');
         continue;
       }
       try {
-        final file = await _download(url);
+        final file = await _download(url, maxFileBytes);
         if (total + file.bytes.length > maxTotalBytes) {
           skipped.add('${file.fileName}: zusammen größer als ${maxTotalBytes ~/ (1024 * 1024)} MB');
           continue;
@@ -156,17 +384,32 @@ class LinkAssetFetcher {
     if (files.isEmpty) {
       throw LinkAssetException(
         skipped.isEmpty
-            ? 'Auf der Seite wurden keine 3D-Modelle (.glb), HDR-Dateien oder Texturen gefunden.'
+            ? 'Auf der Seite wurden keine 3D-Modelle, HDR-Dateien, Sounds, Texturen oder Download-Pakete gefunden.'
             : 'Keine Datei ließ sich übernehmen – ${skipped.first}',
       );
     }
     return LinkFetchResult(files: files, credit: extractCredit(html), skipped: skipped);
   }
 
-  Future<LinkFile> _download(Uri url) async {
-    final bytes = await _get(url, maxFileBytes);
+  /// Einzelne Datei oder ZIP-Paket von einer direkten Adresse.
+  Future<LinkFetchResult> _fetchFile(Uri url) async {
+    // Download-Adressen verraten das Format nicht immer (z. B. …/get?file=x.zip).
+    final bytes = await _get(url, maxArchiveBytes);
+    if (detectMimeType(bytes) == kZipMimeType) {
+      return LinkFetchResult(archive: LinkArchive.open(bytes, url: url.toString(), fileName: _fileName(url)));
+    }
+    if (bytes.length > maxFileBytes) throw LinkAssetException(_tooLarge(maxFileBytes));
+    return LinkFetchResult(files: [_toFile(url, bytes)]);
+  }
+
+  /// Lädt eine Datei, die schon im Browser angetippt wurde (Download-Knopf).
+  Future<LinkFetchResult> fetchDownload(String url) => _fetchFile(normalize(Uri.parse(url)));
+
+  Future<LinkFile> _download(Uri url, int limit) async => _toFile(url, await _get(url, limit));
+
+  LinkFile _toFile(Uri url, Uint8List bytes) {
     final mimeType = detectMimeType(bytes);
-    if (mimeType == null) {
+    if (mimeType == null || mimeType == kZipMimeType) {
       throw const LinkAssetException('unbekanntes Dateiformat');
     }
     return LinkFile(
@@ -174,12 +417,21 @@ class LinkAssetFetcher {
       fileName: _fileName(url),
       mimeType: mimeType,
       bytes: bytes,
-      info: switch (mimeType) {
-        'model/gltf-binary' => describeGlb(bytes),
-        'image/vnd.radiance' => 'Umgebungslicht (HDR-Panorama)',
-        _ => 'Bild bzw. Textur',
-      },
+      info: describe(mimeType, bytes, _fileName(url)),
     );
+  }
+
+  /// Beschreibung einer Datei für die KI.
+  static String describe(String mimeType, Uint8List bytes, String fileName) {
+    if (mimeType == kModelMimeType) return describeGlb(bytes);
+    if (mimeType == kHdrMimeType) return 'Umgebungslicht (HDR-Panorama)';
+    if (mimeType.startsWith('audio/')) return 'Sounddatei (${mimeType.split('/').last.toUpperCase()})';
+    final name = fileName.toLowerCase();
+    if (RegExp(r'normal').hasMatch(name)) return 'Normal Map (Oberflächenrelief)';
+    if (RegExp(r'rough').hasMatch(name)) return 'Roughness Map (Rauheit)';
+    if (RegExp(r'metal').hasMatch(name)) return 'Metalness Map';
+    if (RegExp(r'color|albedo|diffuse|basecolor').hasMatch(name)) return 'Farbtextur';
+    return 'Bild (Sprite oder Textur)';
   }
 
   /// Lädt höchstens [limit] Bytes; größere Dateien werden abgelehnt.
@@ -206,13 +458,10 @@ class LinkAssetFetcher {
 
   static String _tooLarge(int limit) => 'größer als ${limit ~/ (1024 * 1024)} MB';
 
-  static bool _isImagePath(String path) =>
-      RegExp(r'\.(png|jpe?g|webp)$', caseSensitive: false).hasMatch(path);
-
   static String _fileName(Uri url) =>
       url.pathSegments.isEmpty ? url.host : Uri.decodeComponent(url.pathSegments.last);
 
-  /// Erkennt GLB, HDR, PNG, JPEG und WebP anhand der ersten Bytes.
+  /// Erkennt GLB, HDR, Bilder, Sounds und ZIP anhand der ersten Bytes.
   static String? detectMimeType(List<int> bytes) {
     bool startsWith(List<int> prefix, [int offset = 0]) {
       if (bytes.length < offset + prefix.length) return false;
@@ -222,46 +471,56 @@ class LinkAssetFetcher {
       return true;
     }
 
-    if (startsWith(ascii.encode('glTF'))) return 'model/gltf-binary';
+    if (startsWith(ascii.encode('glTF'))) return kModelMimeType;
     if (startsWith(ascii.encode('#?RADIANCE')) || startsWith(ascii.encode('#?RGBE'))) {
-      return 'image/vnd.radiance';
+      return kHdrMimeType;
     }
     if (startsWith([0x89, 0x50, 0x4E, 0x47])) return 'image/png';
     if (startsWith([0xFF, 0xD8, 0xFF])) return 'image/jpeg';
     if (startsWith(ascii.encode('RIFF')) && startsWith(ascii.encode('WEBP'), 8)) {
       return 'image/webp';
     }
+    if (startsWith(ascii.encode('RIFF')) && startsWith(ascii.encode('WAVE'), 8)) {
+      return 'audio/wav';
+    }
+    if (startsWith(ascii.encode('OggS'))) return 'audio/ogg';
+    if (startsWith(ascii.encode('ID3')) ||
+        (bytes.length > 1 && bytes[0] == 0xFF && (bytes[1] & 0xE0) == 0xE0)) {
+      return 'audio/mpeg';
+    }
+    if (startsWith([0x50, 0x4B, 0x03, 0x04])) return kZipMimeType;
     return null;
   }
 
   /// Fasst ein GLB-Modell für die KI zusammen: benannte Teile, Materialien
   /// und Animationen – damit sie z. B. Räder drehen oder den Lack umfärben kann.
   static String describeGlb(Uint8List bytes) {
-    const fallback = '3D-Modell (glTF)';
     try {
       final data = ByteData.sublistView(bytes);
       final jsonLength = data.getUint32(12, Endian.little);
       final json = jsonDecode(utf8.decode(bytes.sublist(20, 20 + jsonLength)));
-      if (json is! Map<String, dynamic>) return fallback;
-
-      List<String> names(String key, int max) => <String>{
-            for (final entry in json[key] as List? ?? const [])
-              if (entry is Map && entry['name'] is String && (entry['name'] as String).isNotEmpty)
-                entry['name'] as String,
-          }.take(max).toList();
-
-      final nodes = names('nodes', 60);
-      final materials = names('materials', 30);
-      final animations = names('animations', 20);
-      return [
-        fallback,
-        if (nodes.isNotEmpty) 'benannte Teile: ${nodes.join(', ')}',
-        if (materials.isNotEmpty) 'Materialien: ${materials.join(', ')}',
-        if (animations.isNotEmpty) 'Animationen: ${animations.join(', ')}',
-      ].join('; ');
+      return json is Map<String, dynamic> ? describeGltf(json) : '3D-Modell (glTF)';
     } catch (_) {
-      return fallback;
+      return '3D-Modell (glTF)';
     }
+  }
+
+  static String describeGltf(Map<String, dynamic> json) {
+    List<String> names(String key, int max) => <String>{
+          for (final entry in json[key] as List? ?? const [])
+            if (entry is Map && entry['name'] is String && (entry['name'] as String).isNotEmpty)
+              entry['name'] as String,
+        }.take(max).toList();
+
+    final nodes = names('nodes', 60);
+    final materials = names('materials', 30);
+    final animations = names('animations', 20);
+    return [
+      '3D-Modell (glTF)',
+      if (nodes.isNotEmpty) 'benannte Teile: ${nodes.join(', ')}',
+      if (materials.isNotEmpty) 'Materialien: ${materials.join(', ')}',
+      if (animations.isNotEmpty) 'Animationen: ${animations.join(', ')}',
+    ].join('; ');
   }
 
   /// Urheberangabe aus dem Infobereich einer Seite (wie bei threejs.org). Nur

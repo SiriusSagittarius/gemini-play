@@ -37,6 +37,7 @@ QUALITÄT:
 - Neustart und Zurücksetzen ausschließlich per JavaScript-Zustand, NIEMALS über location.reload() oder Seitenwechsel.
 - localStorage nur innerhalb von try/catch verwenden (z. B. für Highscores).
 - Grafik auf hohem Niveau, kein Pixel- oder Platzhalter-Look: stimmiges Farbschema, weiche Farbverläufe, Schatten und Glanzlichter, gestochen scharfe Darstellung, flüssige Animationen mit Easing, Partikeleffekte und kurzes Bildschirmwackeln bei Treffern.
+- Sound auf hohem Niveau statt einfacher Piepser: Soundeffekte per Web Audio API aus mehreren Schichten (Oszillatoren plus gefiltertes Rauschen), mit Hüllkurven (kurzer Attack, natürliches Ausklingen), Filter- und Tonhöhen-Sweeps, leichtem Hall (ConvolverNode mit erzeugter Impulsantwort) und einem DynamicsCompressor am Ausgang; Dauergeräusche (z. B. Motor) als Loop, dessen Tonhöhe dem Spielgeschehen folgt; maßvolle Lautstärke und ein Ton-aus-Schalter. AudioContext erst nach der ersten Berührung starten.
 - Alle Texte der App in der Sprache des Nutzer-Prompts.
 - Keine sexuellen Inhalte und keine Nacktheit.
 `;
@@ -142,9 +143,14 @@ function parseSources(raw) {
 }
 
 /** Höchstens so viele Dateien aus Links (Modelle, HDR, Texturen) pro Anfrage. */
-const MAX_FILES = 12;
+const MAX_FILES = 30;
 
-const FILE_KINDS = { model: "3D-Modell", environment: "Umgebungslicht", texture: "Textur" };
+const FILE_KINDS = {
+  model: "3D-Modell",
+  environment: "Umgebungslicht",
+  sound: "Sound",
+  texture: "Bild/Textur",
+};
 
 /**
  * Prüft die Beschreibungen der Dateien, die die App aus Links übernommen hat.
@@ -176,14 +182,25 @@ function filesGuidance(files) {
   const list = files.map((file) => `- ${FILE_KINDS[file.kind]} "${file.name}": ${file.info}`);
   return `EINGEBETTETE DATEIEN (aus Links übernommen, liegen offline im Spiel):
 ${list.join("\n")}
-- Lade sie ausschließlich über den eingebauten Helfer, asynchron vor dem Spielstart und mit Ladeanzeige:
-  const gltf = await PromptPlay.loadModel("NAME"); scene.add(gltf.scene);
-  const env = await PromptPlay.loadEnvironment("NAME"); scene.environment = env;
-  const tex = await PromptPlay.loadTexture("NAME");
+- Lade sie ausschließlich über den eingebauten Helfer PromptPlay, asynchron vor dem Spielstart und mit Ladeanzeige:
+  3D-Modell: const gltf = await PromptPlay.loadModel("NAME"); scene.add(gltf.scene);
+  Umgebungslicht: const env = await PromptPlay.loadEnvironment("NAME"); scene.environment = env;
+  Textur in 3D: const tex = await PromptPlay.loadTexture("NAME");
+  Bild in 2D (Canvas): const img = await PromptPlay.loadImage("NAME"); ctx.drawImage(img, …);
+  Sound: const buf = await PromptPlay.loadSound("NAME"); const s = PromptPlay.playSound(buf, { volume: 0.6, rate: 1, loop: false }); später s.setRate(…), s.setVolume(…), s.stop().
+- Sounds erst nach der ersten Berührung abspielen (z. B. beim Start-Button). Dauergeräusche wie einen Motor als Loop starten und Tonhöhe und Lautstärke laufend dem Spielgeschehen anpassen. Eingebettete Sounds haben Vorrang vor selbst erzeugten.
 - Ein HDR ist vor allem für Licht und Spiegelungen da. Als sichtbaren Hintergrund nur verschwommen (scene.background = env; scene.backgroundBlurriness = 0.6) – oder ein eigener Himmel, wenn das Foto nicht zur Spielwelt passt.
-- Die Modelle sind die Hauptfiguren bzw. -objekte – NICHT aus Grundformen nachbauen. Miss nach dem Laden die Größe mit new THREE.Box3().setFromObject(gltf.scene) und skaliere passend.
+- Die Modelle sind die Hauptfiguren bzw. -objekte – NICHT aus Grundformen nachbauen. Miss nach dem Laden die Größe mit new THREE.Box3().setFromObject(gltf.scene) und skaliere passend. Bausätze aus vielen Teilen (z. B. Straßenstücke) setzt du anhand dieser Maße lückenlos aneinander.
 - Laut glTF-Standard zeigt die Vorderseite eines Modells in +Z-Richtung. Pack das Modell in eine Gruppe und drehe es darin so, dass es in deine Fahrt- bzw. Laufrichtung zeigt – die Kamera hinter dem Fahrzeug sieht das Heck, nicht die Front. Bewegliche Teile sprichst du über gltf.scene.getObjectByName("…") an (z. B. Räder drehen), Farben über das passende Material. Für Kopien (z. B. Gegner) gltf.scene.clone() verwenden statt neu zu laden.
-- Ist eine Herkunft angegeben, nenne sie klein im Startbildschirm (z. B. „Modell: …“).`;
+- Verlangt die Lizenz eine Namensnennung (z. B. „model by …“, CC BY), nenne den Urheber klein im Startbildschirm. CC0 braucht keine Nennung.`;
+}
+
+/** Wie referenceGuidance in lib/main.dart. */
+function referenceGuidance(names) {
+  if (names.length === 0) return "";
+  return `REFERENZBILDER (nur zur Orientierung):
+- Der Nutzer zeigt dir unten Bilder als Vorlage für Stil, Formen, Farben und Stimmung: ${names.join(", ")}. Sie sind NICHT im Spiel enthalten und dürfen nicht eingebettet werden.
+- Gestalte eigene Grafiken in ähnlichem Stil – keine 1:1-Nachbildung und keine Logos, Markennamen, Schriftzüge oder bekannten Figuren aus den Bildern.`;
 }
 
 function assetGuidance(names) {
@@ -203,14 +220,15 @@ function stripAssets(html) {
 
 /**
  * Baut System-Anweisung, Nachrichtenteile und Werkzeuge für Gemini.
- * images: [{ name, mimeType, data (Base64) }], files: [{ name, kind, info }]
- * (Dateien aus Links), sources: Vorlagen-Links, baseHtml: bestehender Code
- * beim Weiterbauen.
+ * images: [{ name, mimeType, data (Base64) }], references: wie images, aber
+ * nur zum Ansehen, files: [{ name, kind, info }] (Dateien aus Links),
+ * sources: Vorlagen-Links, baseHtml: bestehender Code beim Weiterbauen.
  */
 function buildGeminiRequest({
   prompt,
   size = "small",
   images = [],
+  references = [],
   files = [],
   sources = [],
   baseHtml = null,
@@ -221,6 +239,7 @@ function buildGeminiRequest({
     baseHtml ? EXTEND_INSTRUCTIONS : SIZES[size].guidance,
     assetGuidance(names),
     filesGuidance(files),
+    referenceGuidance(references.map((image) => image.name)),
     sources.length > 0 ? SOURCES_INSTRUCTIONS : "",
     kidSafe ? KID_SAFE_INSTRUCTIONS : "",
   ].filter(Boolean);
@@ -235,6 +254,10 @@ function buildGeminiRequest({
   const parts = [{ text }];
   for (const image of images) {
     parts.push({ text: `Bild "${image.name}":` });
+    parts.push({ inlineData: { mimeType: image.mimeType, data: image.data } });
+  }
+  for (const image of references) {
+    parts.push({ text: `Referenzbild "${image.name}" (nur zur Orientierung):` });
     parts.push({ inlineData: { mimeType: image.mimeType, data: image.data } });
   }
   return {

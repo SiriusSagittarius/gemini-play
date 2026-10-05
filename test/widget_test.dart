@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:archive/archive.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -502,7 +503,7 @@ gltf.load("models/gltf/scene.gltf");
       // Schattenbilder und .gltf werden nicht übernommen.
       expect(result.skipped, [
         'ferrari_ao.png: Schattenbild – das Spiel erzeugt eigene Schatten',
-        'scene.gltf: .gltf wird nicht unterstützt, nur .glb',
+        'scene.gltf: .gltf bitte als ZIP-Paket übernehmen',
       ]);
       expect(requested, isNot(contains(endsWith('ferrari_ao.png'))));
       // Logos auf normalen Seiten werden nicht übernommen.
@@ -535,6 +536,100 @@ gltf.load("models/gltf/scene.gltf");
       );
     });
 
+    test('ZIP-Pakete: Auswahl mit Vorschau, Lizenz, Sounds und glTF', () async {
+      final zip = Archive()
+        ..add(ArchiveFile.bytes('License.txt', utf8.encode('Racing Kit\nLicense: (Creative Commons Zero, CC0)\n')))
+        ..add(ArchiveFile.bytes('Models/GLB format/raceCarRed.glb', glb()))
+        ..add(ArchiveFile.bytes('Side/raceCarRed.png', png))
+        ..add(ArchiveFile.bytes('Isometric/raceCarRed_NE.png', png))
+        ..add(ArchiveFile.bytes('Preview.png', png))
+        ..add(ArchiveFile.bytes('Audio/engine.ogg', utf8.encode('OggS-Daten')))
+        ..add(ArchiveFile.bytes('__MACOSX/Audio/._engine.ogg', [1, 2, 3]))
+        ..add(ArchiveFile.bytes('road/road.gltf', utf8.encode(jsonEncode({
+              'asset': {'version': '2.0'},
+              'nodes': [
+                {'name': 'road_piece'},
+              ],
+              'buffers': [
+                {'uri': 'road.bin', 'byteLength': 3},
+              ],
+              'images': [
+                {'uri': '../textures/asphalt.png'},
+              ],
+            }))))
+        ..add(ArchiveFile.bytes('road/road.bin', [1, 2, 3]))
+        ..add(ArchiveFile.bytes('textures/asphalt.png', png));
+      final bytes = Uint8List.fromList(ZipEncoder().encodeBytes(zip));
+      final client = MockClient((request) async => request.url.path == '/kit.zip'
+          ? http.Response.bytes(bytes, 200)
+          : http.Response('', 404));
+
+      final result = await LinkAssetFetcher(client: client).fetch('https://kenney.nl/kit.zip');
+      final archive = result.archive!;
+      expect(archive.license, 'License: (Creative Commons Zero, CC0)');
+      // Modelle zuerst, Vorschaubilder zugeordnet statt angeboten.
+      expect([for (final i in archive.items) i.path], [
+        'Models/GLB format/raceCarRed.glb',
+        'road/road.gltf',
+        'Audio/engine.ogg',
+        'textures/asphalt.png',
+      ]);
+      expect(archive.items.first.previewPath, 'Side/raceCarRed.png');
+      expect(archive.preview(archive.items.first), png);
+      expect(archive.items[2].kind, 'sound');
+
+      final files = archive.extract([archive.items[1], archive.items[2]]);
+      final gltf = jsonDecode(utf8.decode(files.first.bytes)) as Map<String, dynamic>;
+      expect((gltf['buffers'] as List).single['uri'], 'data:application/octet-stream;base64,AQID');
+      expect((gltf['images'] as List).single['uri'], startsWith('data:image/png;base64,'));
+      expect(files.first.mimeType, kGltfJsonMimeType);
+      expect(files.first.info, contains('benannte Teile: road_piece'));
+      expect(files.first.info, endsWith('Lizenz: License: (Creative Commons Zero, CC0)'));
+      expect(files.last.mimeType, 'audio/ogg');
+      expect(files.last.info, startsWith('Sounddatei (OGG)'));
+    });
+
+    test('Kenney-Seite: das Download-Paket wird zur Auswahl geöffnet', () async {
+      final zip = Uint8List.fromList(ZipEncoder().encodeBytes(
+        Archive()..add(ArchiveFile.bytes('car.glb', glb())),
+      ));
+      final client = MockClient((request) async => switch (request.url.path) {
+            '/assets/racing-kit' => http.Response(
+                '<a href="/media/pages/assets/racing-kit/x/kenney_racing-kit.zip">Download</a>',
+                200,
+              ),
+            '/media/pages/assets/racing-kit/x/kenney_racing-kit.zip' => http.Response.bytes(zip, 200),
+            _ => http.Response('', 404),
+          });
+      final result = await LinkAssetFetcher(client: client).fetch('https://kenney.nl/assets/racing-kit');
+      expect(result.archive!.fileName, 'kenney_racing-kit.zip');
+      expect(result.archive!.items.single.fileName, 'car.glb');
+    });
+
+    test('erkennt Sounds und ZIP am Dateiinhalt', () {
+      expect(LinkAssetFetcher.detectMimeType(ascii.encode('OggS....')), 'audio/ogg');
+      expect(LinkAssetFetcher.detectMimeType(ascii.encode('ID3....')), 'audio/mpeg');
+      expect(LinkAssetFetcher.detectMimeType([0xFF, 0xFB, 0x90, 0x00]), 'audio/mpeg');
+      expect(LinkAssetFetcher.detectMimeType(ascii.encode('RIFF0000WAVEfmt ')), 'audio/wav');
+      expect(LinkAssetFetcher.detectMimeType([0x50, 0x4B, 0x03, 0x04]), kZipMimeType);
+      expect(assetKind('audio/ogg'), 'sound');
+      expect(assetKind(kGltfJsonMimeType), 'model');
+    });
+
+    test('Referenzbilder: Gemini sieht sie, ins Spiel kommen sie nicht', () {
+      const reference = GameImage(name: 'referenz_1', mimeType: 'image/png', data: 'AAA', source: 'https://x.de/a.png');
+      const sound = GameImage(name: 'engine', mimeType: 'audio/ogg', data: 'BBB', source: 'https://x.de/e.ogg', info: 'Sounddatei (OGG)');
+      const request = GenerationRequest(prompt: 'Rennspiel', images: [sound], references: [reference]);
+      final instruction = buildSystemInstruction(request);
+      expect(instruction, contains('REFERENZBILDER'));
+      expect(instruction, contains('Vorlage für Stil, Formen, Farben und Stimmung: referenz_1.'));
+      expect(instruction, contains('- Sound "engine": Sounddatei (OGG)'));
+      expect(instruction, contains('PromptPlay.loadSound("NAME")'));
+      expect(instruction, contains('Sound auf hohem Niveau'));
+      expect(request.ownImages, isEmpty);
+      expect(request.linkFiles.single.isSound, isTrue);
+    });
+
     test('Dateien aus Links gehen nur als Beschreibung an die KI', () {
       const own = GameImage(name: 'huhn', mimeType: 'image/png', data: 'AAA');
       const model = GameImage(
@@ -557,7 +652,7 @@ gltf.load("models/gltf/scene.gltf");
       final instruction = buildSystemInstruction(request);
       expect(instruction, contains('EINGEBETTETE DATEIEN'));
       expect(instruction, contains('- 3D-Modell "ferrari": 3D-Modell (glTF); benannte Teile: wheel_fl'));
-      expect(instruction, contains('- Textur "ferrari_ao"'));
+      expect(instruction, contains('- Bild/Textur "ferrari_ao"'));
       expect(instruction, contains('PromptPlay.loadModel("NAME")'));
       expect(instruction, contains('Der Nutzer stellt diese Bilder bereit: huhn.'));
 
@@ -677,8 +772,9 @@ gltf.load("models/gltf/scene.gltf");
     expect(find.text('Bilder hinzufügen'), findsOneWidget);
     expect(find.text(kImagesNeedGemini), findsNothing);
     expect(find.text('Kindgerecht (Familien-Modus)'), findsOneWidget);
-    expect(find.text('Vorlagen und 3D-Modelle aus dem Netz (optional)'), findsOneWidget);
-    expect(find.textContaining('Gemini liest die Seite zusätzlich als Vorlage'), findsOneWidget);
+    expect(find.text('3D-Modelle, Sounds und Vorlagen aus dem Netz (optional)'), findsOneWidget);
+    expect(find.textContaining('Gemini liest eingetragene Seiten zusätzlich als Vorlage'), findsOneWidget);
+    expect(find.text('Quellen durchsuchen'), findsOneWidget);
 
     // Ungültiger Link: Fehlermeldung statt Anfrage.
     await tester.enterText(find.byType(TextField).first, 'Ein 3D-Rennspiel');

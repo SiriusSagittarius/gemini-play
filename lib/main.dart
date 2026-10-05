@@ -37,6 +37,7 @@ import 'package:url_launcher/url_launcher.dart' show LaunchMode, launchUrl;
 
 import 'firebase_options.dart';
 import 'help_screen.dart';
+import 'asset_browser.dart';
 import 'link_assets.dart';
 
 Future<void> main() async {
@@ -301,12 +302,15 @@ class GameImage {
 
   String get dataUrl => 'data:$mimeType;base64,$data';
 
-  bool get isModel => mimeType == kModelMimeType;
-  bool get isEnvironment => mimeType == kHdrMimeType;
+  /// model, environment, sound oder texture (siehe assetKind).
+  String get kind => assetKind(mimeType);
+  bool get isModel => kind == 'model';
+  bool get isEnvironment => kind == 'environment';
+  bool get isSound => kind == 'sound';
 
   /// Eigene Bilder gehen zum Ansehen an Gemini; Dateien aus Links nur als
   /// Beschreibung.
-  bool get isOwnImage => source == null && !isModel && !isEnvironment;
+  bool get isOwnImage => source == null && kind == 'texture';
 
   Map<String, dynamic> toJson() => {
         'name': name,
@@ -359,15 +363,15 @@ class GameImage {
   }
 }
 
-const kModelMimeType = 'model/gltf-binary';
-const kHdrMimeType = 'image/vnd.radiance';
-
 /// Höchstens so viele eigene Grafiken pro Spiel (wie auf dem Server).
 const kMaxImages = 6;
 
 /// Höchstens so viele eingebettete Dateien insgesamt (eigene Grafiken und
 /// Dateien aus Links, wie auf dem Server).
-const kMaxAssets = 12;
+const kMaxAssets = 30;
+
+/// Höchstens so viele Referenzbilder (nur zum Ansehen) pro Anfrage, wie auf dem Server.
+const kMaxReferences = 4;
 
 const kImagesNeedGemini = 'Eigene Grafiken funktionieren nur mit Gemini '
     '(PromptPlay Cloud oder eigener Gemini-Key) – nicht mit Groq.';
@@ -530,10 +534,14 @@ class GenerationRequest {
     required this.prompt,
     this.size = GameSize.small,
     this.images = const [],
+    this.references = const [],
     this.sources = const [],
     this.baseHtml,
     this.kidSafe = false,
   });
+
+  /// Bilder nur zur Orientierung – Gemini sieht sie, ins Spiel kommen sie nicht.
+  final List<GameImage> references;
 
   final String prompt;
   final GameSize size;
@@ -875,9 +883,19 @@ QUALITÄT:
 - Neustart und Zurücksetzen ausschließlich per JavaScript-Zustand, NIEMALS über location.reload() oder Seitenwechsel.
 - localStorage nur innerhalb von try/catch verwenden (z. B. für Highscores).
 - Grafik auf hohem Niveau, kein Pixel- oder Platzhalter-Look: stimmiges Farbschema, weiche Farbverläufe, Schatten und Glanzlichter, gestochen scharfe Darstellung, flüssige Animationen mit Easing, Partikeleffekte und kurzes Bildschirmwackeln bei Treffern.
+- $kSoundInstructions
 - Alle Texte der App in der Sprache des Nutzer-Prompts.
 - Keine sexuellen Inhalte und keine Nacktheit.
 ''';
+
+const kSoundInstructions =
+    'Sound auf hohem Niveau statt einfacher Piepser: Soundeffekte per Web Audio API '
+    'aus mehreren Schichten (Oszillatoren plus gefiltertes Rauschen), mit Hüllkurven '
+    '(kurzer Attack, natürliches Ausklingen), Filter- und Tonhöhen-Sweeps, leichtem '
+    'Hall (ConvolverNode mit erzeugter Impulsantwort) und einem DynamicsCompressor '
+    'am Ausgang; Dauergeräusche (z. B. Motor) als Loop, dessen Tonhöhe dem '
+    'Spielgeschehen folgt; maßvolle Lautstärke und ein Ton-aus-Schalter. '
+    'AudioContext erst nach der ersten Berührung starten.';
 
 const k3dInstructions = '''3D MIT THREE.JS:
 - Für 3D-Spiele (z. B. Autorennen, Flugspiele, 3D-Labyrinthe) steht Three.js (r186) bereits als globale Variable THREE bereit – die App lädt es automatisch vor deinem Code. Verwende THREE direkt (z. B. new THREE.Scene()). KEIN import, KEIN <script src>, KEINE Importmap.
@@ -938,26 +956,39 @@ const kDefaultSafetySettings = [
   {'category': 'HARM_CATEGORY_SEXUALLY_EXPLICIT', 'threshold': 'BLOCK_MEDIUM_AND_ABOVE'},
 ];
 
-/// Art einer Datei aus einem Link, wie sie an den Server geht.
-String linkFileKind(GameImage file) =>
-    file.isModel ? 'model' : (file.isEnvironment ? 'environment' : 'texture');
-
 /// Beschreibt die eingebetteten Dateien aus Links und wie das Spiel sie lädt
 /// (wie filesGuidance in functions/html.js).
 String filesGuidance(List<({String name, String kind, String info})> files) {
   if (files.isEmpty) return '';
-  const labels = {'model': '3D-Modell', 'environment': 'Umgebungslicht', 'texture': 'Textur'};
+  const labels = {
+    'model': '3D-Modell',
+    'environment': 'Umgebungslicht',
+    'sound': 'Sound',
+    'texture': 'Bild/Textur',
+  };
   final list = [for (final file in files) '- ${labels[file.kind]} "${file.name}": ${file.info}'];
   return '''EINGEBETTETE DATEIEN (aus Links übernommen, liegen offline im Spiel):
 ${list.join('\n')}
-- Lade sie ausschließlich über den eingebauten Helfer, asynchron vor dem Spielstart und mit Ladeanzeige:
-  const gltf = await PromptPlay.loadModel("NAME"); scene.add(gltf.scene);
-  const env = await PromptPlay.loadEnvironment("NAME"); scene.environment = env;
-  const tex = await PromptPlay.loadTexture("NAME");
+- Lade sie ausschließlich über den eingebauten Helfer PromptPlay, asynchron vor dem Spielstart und mit Ladeanzeige:
+  3D-Modell: const gltf = await PromptPlay.loadModel("NAME"); scene.add(gltf.scene);
+  Umgebungslicht: const env = await PromptPlay.loadEnvironment("NAME"); scene.environment = env;
+  Textur in 3D: const tex = await PromptPlay.loadTexture("NAME");
+  Bild in 2D (Canvas): const img = await PromptPlay.loadImage("NAME"); ctx.drawImage(img, …);
+  Sound: const buf = await PromptPlay.loadSound("NAME"); const s = PromptPlay.playSound(buf, { volume: 0.6, rate: 1, loop: false }); später s.setRate(…), s.setVolume(…), s.stop().
+- Sounds erst nach der ersten Berührung abspielen (z. B. beim Start-Button). Dauergeräusche wie einen Motor als Loop starten und Tonhöhe und Lautstärke laufend dem Spielgeschehen anpassen. Eingebettete Sounds haben Vorrang vor selbst erzeugten.
 - Ein HDR ist vor allem für Licht und Spiegelungen da. Als sichtbaren Hintergrund nur verschwommen (scene.background = env; scene.backgroundBlurriness = 0.6) – oder ein eigener Himmel, wenn das Foto nicht zur Spielwelt passt.
-- Die Modelle sind die Hauptfiguren bzw. -objekte – NICHT aus Grundformen nachbauen. Miss nach dem Laden die Größe mit new THREE.Box3().setFromObject(gltf.scene) und skaliere passend.
+- Die Modelle sind die Hauptfiguren bzw. -objekte – NICHT aus Grundformen nachbauen. Miss nach dem Laden die Größe mit new THREE.Box3().setFromObject(gltf.scene) und skaliere passend. Bausätze aus vielen Teilen (z. B. Straßenstücke) setzt du anhand dieser Maße lückenlos aneinander.
 - Laut glTF-Standard zeigt die Vorderseite eines Modells in +Z-Richtung. Pack das Modell in eine Gruppe und drehe es darin so, dass es in deine Fahrt- bzw. Laufrichtung zeigt – die Kamera hinter dem Fahrzeug sieht das Heck, nicht die Front. Bewegliche Teile sprichst du über gltf.scene.getObjectByName("…") an (z. B. Räder drehen), Farben über das passende Material. Für Kopien (z. B. Gegner) gltf.scene.clone() verwenden statt neu zu laden.
-- Ist eine Herkunft angegeben, nenne sie klein im Startbildschirm (z. B. „Modell: …“).''';
+- Verlangt die Lizenz eine Namensnennung (z. B. „model by …“, CC BY), nenne den Urheber klein im Startbildschirm. CC0 braucht keine Nennung.''';
+}
+
+/// Bilder, die die KI nur ansieht – sie kommen nicht ins Spiel
+/// (wie referenceGuidance in functions/html.js).
+String referenceGuidance(List<String> names) {
+  if (names.isEmpty) return '';
+  return '''REFERENZBILDER (nur zur Orientierung):
+- Der Nutzer zeigt dir unten Bilder als Vorlage für Stil, Formen, Farben und Stimmung: ${names.join(', ')}. Sie sind NICHT im Spiel enthalten und dürfen nicht eingebettet werden.
+- Gestalte eigene Grafiken in ähnlichem Stil – keine 1:1-Nachbildung und keine Logos, Markennamen, Schriftzüge oder bekannten Figuren aus den Bildern.''';
 }
 
 /// System-Anweisung inkl. Größe bzw. Weiterbauen, Grafiken und Vorlagen
@@ -968,8 +999,9 @@ String buildSystemInstruction(GenerationRequest request) {
     assetGuidance([for (final image in request.ownImages) image.name]),
     filesGuidance([
       for (final file in request.linkFiles)
-        (name: file.name, kind: linkFileKind(file), info: file.info ?? ''),
+        (name: file.name, kind: file.kind, info: file.info ?? ''),
     ]),
+    referenceGuidance([for (final image in request.references) image.name]),
     if (request.sources.isNotEmpty) kSourcesInstructions,
     if (request.kidSafe) kKidSafeInstructions,
   ].where((text) => text.isNotEmpty).join('\n\n');
@@ -1184,6 +1216,12 @@ class GeminiService extends AiService {
                 'inlineData': {'mimeType': image.mimeType, 'data': image.data},
               },
             ],
+            for (final image in request.references) ...[
+              {'text': 'Referenzbild "${image.name}" (nur zur Orientierung):'},
+              {
+                'inlineData': {'mimeType': image.mimeType, 'data': image.data},
+              },
+            ],
           ],
         },
       ],
@@ -1333,7 +1371,9 @@ class GroqService extends AiService {
     required String model,
     required GenerationRequest request,
   }) async {
-    if (request.ownImages.isNotEmpty) throw const AiException(kImagesNeedGemini);
+    if (request.ownImages.isNotEmpty || request.references.isNotEmpty) {
+      throw const AiException(kImagesNeedGemini);
+    }
     if (request.sources.isNotEmpty) throw const AiException(kSourcesNeedGemini);
 
     final uri = Uri.https(_host, '/openai/v1/chat/completions');
@@ -1536,10 +1576,14 @@ class CloudService {
           for (final image in request.ownImages)
             {'name': image.name, 'mimeType': image.mimeType, 'data': image.data},
         ],
+        'references': [
+          for (final image in request.references)
+            {'name': image.name, 'mimeType': image.mimeType, 'data': image.data},
+        ],
         // Modelle & Co. bleiben auf dem Gerät – der Server bekommt nur die Beschreibung.
         'files': [
           for (final file in request.linkFiles)
-            {'name': file.name, 'kind': linkFileKind(file), 'info': file.info ?? ''},
+            {'name': file.name, 'kind': file.kind, 'info': file.info ?? ''},
         ],
       });
       final data = Map<String, dynamic>.from(result.data as Map);
@@ -3240,6 +3284,9 @@ class _CreateScreenState extends State<CreateScreen> {
   GameSize _size = GameSize.small;
   bool _kidSafe = false;
   final _images = <_PickedImage>[];
+
+  /// Bilder nur zur Orientierung für die KI – sie kommen nicht ins Spiel.
+  final _references = <_PickedImage>[];
   bool _usesCloud = false;
   bool _outOfCredits = false;
   String? _noCreditsMessage;
@@ -3363,31 +3410,24 @@ class _CreateScreenState extends State<CreateScreen> {
     });
 
     final fetcher = LinkAssetFetcher();
-    final added = <_PickedImage>[];
+    var added = 0;
     final problems = <String>[];
     try {
       for (final url in parsed.urls) {
         try {
           final result = await fetcher.fetch(url);
           problems.addAll(result.skipped);
-          for (final file in result.files) {
-            if (_images.length + added.length >= kMaxAssets) {
-              problems.add('${file.fileName}: höchstens $kMaxAssets Dateien pro Spiel');
-              continue;
-            }
-            if (_images.any((picked) => picked.image.source == file.url) ||
-                added.any((picked) => picked.image.source == file.url)) {
-              continue;
-            }
-            final base = GameImage.sanitizeName(file.fileName.replaceFirst(RegExp(r'\.[^.]*$'), ''));
-            added.add(_PickedImage(GameImage(
-              name: _uniqueName(base, extra: added),
-              mimeType: file.mimeType,
-              data: base64Encode(file.bytes),
-              source: file.url,
-              info: result.credit == null ? file.info : '${file.info}; Herkunft: ${result.credit}',
-            )));
+          var files = withCredit(result.files, result.credit);
+          final archive = result.archive;
+          if (archive != null && mounted) {
+            final picked = await showArchivePicker(
+              context,
+              archive,
+              maxCount: kMaxAssets - _images.length,
+            );
+            files = withCredit(archive.extract(picked ?? const []), result.credit);
           }
+          added += _addLinkFiles(files, problems);
         } on LinkAssetException catch (e) {
           problems.add(e.message);
         }
@@ -3397,15 +3437,81 @@ class _CreateScreenState extends State<CreateScreen> {
     }
     if (!mounted) return;
     setState(() {
-      _images.addAll(added);
       _fetchingLinks = false;
-      if (added.isEmpty && problems.isNotEmpty) _error = problems.first;
+      if (added == 0 && problems.isNotEmpty) _error = problems.first;
     });
-    if (added.isNotEmpty) {
+    if (added > 0) {
       showMessage(
         context,
-        '${added.length} Datei(en) übernommen'
+        '$added Datei(en) übernommen'
         '${problems.isEmpty ? '.' : ' – ${problems.length} übersprungen.'}',
+      );
+    }
+  }
+
+  /// Bettet Dateien aus Links ins Spiel ein; liefert die Zahl der neuen Dateien.
+  int _addLinkFiles(List<LinkFile> files, [List<String>? problems]) {
+    final added = <_PickedImage>[];
+    for (final file in files) {
+      if (_images.length + added.length >= kMaxAssets) {
+        problems?.add('${file.fileName}: höchstens $kMaxAssets Dateien pro Spiel');
+        continue;
+      }
+      if ([..._images, ...added].any((picked) => picked.image.source == file.url)) continue;
+      final base = GameImage.sanitizeName(file.fileName.replaceFirst(RegExp(r'\.[^.]*$'), ''));
+      added.add(_PickedImage(GameImage(
+        name: _uniqueName(base, extra: added),
+        mimeType: file.mimeType,
+        data: base64Encode(file.bytes),
+        source: file.url,
+        info: file.info,
+      )));
+    }
+    if (added.isNotEmpty) setState(() => _images.addAll(added));
+    return added.length;
+  }
+
+  /// Quellen durchstöbern: Dateien fürs Spiel, Referenzbilder und Vorlagen-Seiten.
+  Future<void> _openAssetBrowser() async {
+    final result = await Navigator.of(context).push<AssetBrowserResult>(
+      MaterialPageRoute(
+        builder: (_) => AssetBrowserScreen(
+          maxFiles: kMaxAssets - _images.length,
+          maxReferences: kMaxReferences - _references.length,
+        ),
+      ),
+    );
+    if (result == null || !mounted) return;
+    final added = _addLinkFiles(result.files);
+    setState(() {
+      for (final reference in result.references) {
+        if (_references.length >= kMaxReferences) break;
+        final base = GameImage.sanitizeName('referenz_${_references.length + 1}');
+        _references.add(_PickedImage(GameImage(
+          name: _uniqueName(base, extra: _references),
+          mimeType: reference.mimeType,
+          data: base64Encode(reference.bytes),
+          source: reference.url,
+          info: 'Referenzbild',
+        )));
+      }
+      // Übernommene Seiten (z. B. three.js-Beispiele) kann Gemini als Vorlage lesen.
+      final links = parseSourceLinks(_sourcesController.text).urls;
+      final pages = [
+        for (final page in result.pages)
+          if (!links.contains(page)) page,
+      ].take(kMaxSources - links.length);
+      if (pages.isNotEmpty) {
+        _sourcesController.text = [...links, ...pages].join('\n');
+      }
+    });
+    if (added > 0 || result.references.isNotEmpty) {
+      showMessage(
+        context,
+        [
+          if (added > 0) '$added Datei(en) im Spiel',
+          if (result.references.isNotEmpty) '${result.references.length} Referenzbild(er)',
+        ].join(', '),
       );
     }
   }
@@ -3471,7 +3577,7 @@ class _CreateScreenState extends State<CreateScreen> {
   /// Hängt bei Bedarf _2, _3 … an, damit jeder Bildname nur einmal vorkommt.
   String _uniqueName(String base, {_PickedImage? except, List<_PickedImage> extra = const []}) {
     final taken = {
-      for (final picked in [..._images, ...extra])
+      for (final picked in [..._images, ..._references, ...extra])
         if (!identical(picked, except)) picked.image.name,
     };
     if (!taken.contains(base)) return base;
@@ -3522,7 +3628,7 @@ class _CreateScreenState extends State<CreateScreen> {
 
     final groq = cloud == null && provider == AiProvider.groq;
     final images = [for (final picked in _images) picked.image];
-    if (groq && images.any((image) => image.isOwnImage)) {
+    if (groq && (images.any((image) => image.isOwnImage) || _references.isNotEmpty)) {
       setState(() => _error = kImagesNeedGemini);
       return;
     }
@@ -3541,6 +3647,7 @@ class _CreateScreenState extends State<CreateScreen> {
       prompt: prompt,
       size: _size,
       images: images,
+      references: [for (final picked in _references) picked.image],
       // Groq kann keine Seiten lesen; übernommene Dateien funktionieren trotzdem.
       // Beispiel-Links (threejs.org/examples/#…) zeigen auf die Seite mit dem Code.
       sources: groq
@@ -3980,15 +4087,24 @@ class _CreateScreenState extends State<CreateScreen> {
     );
   }
 
-  Widget _buildAssetChip(_PickedImage picked) {
+  Widget _buildAssetChip(_PickedImage picked, {bool reference = false}) {
     final image = picked.image;
     final kb = (picked.bytes.length / 1024).ceil();
+    if (reference) {
+      return InputChip(
+        avatar: CircleAvatar(backgroundImage: MemoryImage(picked.bytes)),
+        label: const Text('Referenz'),
+        tooltip: 'Nur zur Orientierung – kommt nicht ins Spiel',
+        onDeleted: _loading ? null : () => setState(() => _references.remove(picked)),
+      );
+    }
     return InputChip(
-      avatar: image.isModel
-          ? const Icon(Icons.view_in_ar)
-          : image.isEnvironment
-              ? const Icon(Icons.wb_twilight)
-              : CircleAvatar(backgroundImage: MemoryImage(picked.bytes)),
+      avatar: switch (image.kind) {
+        'model' => const Icon(Icons.view_in_ar),
+        'environment' => const Icon(Icons.wb_twilight),
+        'sound' => const Icon(Icons.music_note),
+        _ => CircleAvatar(backgroundImage: MemoryImage(picked.bytes)),
+      },
       label: Text(image.isOwnImage
           ? image.name
           : '${image.name} · ${kb >= 1024 ? '${(kb / 1024).toStringAsFixed(1)} MB' : '$kb KB'}'),
@@ -4009,19 +4125,25 @@ class _CreateScreenState extends State<CreateScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text('Vorlagen und 3D-Modelle aus dem Netz (optional)', style: theme.textTheme.titleSmall),
+        Text('3D-Modelle, Sounds und Vorlagen aus dem Netz (optional)', style: theme.textTheme.titleSmall),
         const SizedBox(height: 6),
         Text(
-          'Trag z. B. ein Beispiel von threejs.org oder einen direkten .glb-Link ein '
-          'und tippe auf „Dateien übernehmen“: Die App lädt 3D-Modelle, HDR-Licht und '
-          'Texturen herunter und packt sie ins Spiel – offline spielbar und beim '
-          'Teilen dabei. Nur Dateien verwenden, die du nutzen darfst (Lizenz auf der '
-          'Herkunftsseite prüfen). '
-          '${_imagesSupported ? 'Gemini liest die Seite zusätzlich als Vorlage'
+          'Unter „Quellen durchsuchen“ findest du Gratis-Modelle, Sounds und Texturen '
+          '(z. B. Kenney, Poly Haven) und kannst lange auf Bilder drücken, um sie nur als '
+          'Referenz zu nutzen. Oder trag einen Link ein und tippe auf „Dateien '
+          'übernehmen“. Übernommene Dateien liegen im Spiel – offline spielbar und beim '
+          'Teilen dabei. Nur Dateien verwenden, die du nutzen darfst. '
+          '${_imagesSupported ? 'Gemini liest eingetragene Seiten zusätzlich als Vorlage'
               '${_usesCloud ? ' (${creditsLabel(kSourceCredits)} extra)' : ''}.' : 'Mit Groq liest die KI die Seite nicht mit – die übernommenen Dateien funktionieren aber.'}',
           style: theme.textTheme.bodySmall,
         ),
         const SizedBox(height: 8),
+        FilledButton.tonalIcon(
+          onPressed: _loading || _fetchingLinks ? null : _openAssetBrowser,
+          icon: const Icon(Icons.travel_explore),
+          label: const Text('Quellen durchsuchen'),
+        ),
+        const SizedBox(height: 12),
         TextField(
           controller: _sourcesController,
           enabled: !_loading && !_fetchingLinks,
@@ -4050,12 +4172,22 @@ class _CreateScreenState extends State<CreateScreen> {
             label: Text(_fetchingLinks ? 'Lade Dateien …' : 'Dateien übernehmen'),
           ),
         ),
-        if (files.isNotEmpty) ...[
+        if (files.isNotEmpty || _references.isNotEmpty) ...[
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,
             runSpacing: 8,
-            children: [for (final picked in files) _buildAssetChip(picked)],
+            children: [
+              for (final picked in files) _buildAssetChip(picked),
+              for (final picked in _references) _buildAssetChip(picked, reference: true),
+            ],
+          ),
+        ],
+        if (_references.isNotEmpty && !_imagesSupported) ...[
+          const SizedBox(height: 4),
+          Text(
+            'Referenzbilder kann nur Gemini ansehen – mit Groq bitte entfernen.',
+            style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error),
           ),
         ],
       ],
