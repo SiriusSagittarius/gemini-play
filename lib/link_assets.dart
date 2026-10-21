@@ -10,6 +10,14 @@ const kGltfJsonMimeType = 'model/gltf+json';
 const kHdrMimeType = 'image/vnd.radiance';
 const kZipMimeType = 'application/zip';
 
+/// Prüft, ob ein Link ein YouTube-Video oder -Short ist (wird von Gemini nativ als Video gelesen).
+bool isYouTubeUrl(String url) {
+  final u = url.trim().toLowerCase();
+  return u.contains('youtube.com/watch') ||
+      u.contains('youtu.be/') ||
+      u.contains('youtube.com/shorts/');
+}
+
 /// Art einer eingebetteten Datei, wie sie die KI und der Server kennen.
 String assetKind(String mimeType) {
   if (mimeType == kModelMimeType || mimeType == kGltfJsonMimeType) return 'model';
@@ -319,7 +327,13 @@ class LinkAssetFetcher {
   }
 
   Future<LinkFetchResult> fetch(String link) async {
-    final uri = normalize(Uri.parse(link.trim()));
+    final rawTrimmed = link.trim();
+    if (isYouTubeUrl(rawTrimmed)) {
+      throw const LinkAssetException(
+        'YouTube-Videos enthalten keine 3D-Dateien, sondern dienen Gemini als Video-Vorlage.',
+      );
+    }
+    final uri = normalize(Uri.parse(rawTrimmed));
     if (_directFile.hasMatch(uri.path)) return _fetchFile(uri);
 
     final html = utf8.decode(await _get(uri, _maxPageBytes), allowMalformed: true);
@@ -526,8 +540,8 @@ class LinkAssetFetcher {
   }
 
   /// Maße des Modells in der Szene (inkl. Verschiebung, Drehung und Skalierung
-  /// der Knoten) – damit die KI Modelle passend skaliert und Bausatz-Teile wie
-  /// Straßenstücke lückenlos aneinandersetzt.
+  /// der Knoten) – erkennt auch die Längsachse und die Ausrichtung der Vorderseite
+  /// (+Z, -Z, +X, -X), damit die KI Modelle richtig dreht und Fahrzeuge nicht rückwärts fahren.
   static String? describeBounds(Map<String, dynamic> json) {
     try {
       final accessors = json['accessors'] as List? ?? const [];
@@ -542,10 +556,45 @@ class LinkAssetFetcher {
       final min = [double.infinity, double.infinity, double.infinity];
       final max = [double.negativeInfinity, double.negativeInfinity, double.negativeInfinity];
 
+      final frontPositions = <List<double>>[];
+      final rearPositions = <List<double>>[];
+
+      bool isFrontNode(String rawName) {
+        final name = rawName.toLowerCase();
+        final patterns = [
+          'front', 'vorne', 'vorn', 'headlight', 'headlamp', 'nose', 'hood', 'bonnet',
+          'scheinwerfer', 'bumper_f', 'bumper-f', 'wheel_f', 'wheel-f', 'wheelf',
+        ];
+        for (final p in patterns) {
+          if (name.contains(p)) return true;
+        }
+        return RegExp(r'(^|[_\W])(fl|fr|wheel_?f[lr]?)([_\W]|\d|$)').hasMatch(name);
+      }
+
+      bool isRearNode(String rawName) {
+        final name = rawName.toLowerCase();
+        final patterns = [
+          'rear', 'back', 'hinten', 'tail', 'taillight', 'taillamp', 'spoiler', 'exhaust',
+          'trunk', 'boot', 'auspuff', 'heck', 'bumper_r', 'bumper-r', 'wheel_r', 'wheel-r', 'wheelr',
+        ];
+        for (final p in patterns) {
+          if (name.contains(p)) return true;
+        }
+        return RegExp(r'(^|[_\W])(rl|rr|wheel_?r[lr]?)([_\W]|\d|$)').hasMatch(name);
+      }
+
       void visit(int index, List<double> parent, int depth) {
         if (depth > 64 || index >= allNodes.length) return;
         final node = allNodes[index] as Map;
         final world = _multiply(parent, _localMatrix(node));
+        final nodeName = node['name'] is String ? (node['name'] as String) : '';
+        final isF = isFrontNode(nodeName);
+        final isR = isRearNode(nodeName);
+
+        final nodeMin = [double.infinity, double.infinity, double.infinity];
+        final nodeMax = [double.negativeInfinity, double.negativeInfinity, double.negativeInfinity];
+        var hasVertices = false;
+
         final mesh = node['mesh'];
         if (mesh is num && mesh < meshes.length) {
           for (final primitive in (meshes[mesh.toInt()] as Map)['primitives'] as List? ?? const []) {
@@ -560,13 +609,29 @@ class LinkAssetFetcher {
                 corner & 2 == 0 ? lo[1] : hi[1],
                 corner & 4 == 0 ? lo[2] : hi[2],
               ]);
+              hasVertices = true;
               for (var axis = 0; axis < 3; axis++) {
                 if (p[axis] < min[axis]) min[axis] = p[axis];
                 if (p[axis] > max[axis]) max[axis] = p[axis];
+                if (p[axis] < nodeMin[axis]) nodeMin[axis] = p[axis];
+                if (p[axis] > nodeMax[axis]) nodeMax[axis] = p[axis];
               }
             }
           }
         }
+
+        if (isF || isR) {
+          final center = hasVertices
+              ? [
+                  (nodeMin[0] + nodeMax[0]) / 2,
+                  (nodeMin[1] + nodeMax[1]) / 2,
+                  (nodeMin[2] + nodeMax[2]) / 2,
+                ]
+              : [world[12], world[13], world[14]];
+          if (isF) frontPositions.add(center);
+          if (isR) rearPositions.add(center);
+        }
+
         for (final child in node['children'] as List? ?? const []) {
           visit((child as num).toInt(), world, depth + 1);
         }
@@ -576,10 +641,66 @@ class LinkAssetFetcher {
         visit(root, _identity, 0);
       }
       if (min[0] == double.infinity) return null;
+
+      final dx = max[0] - min[0];
+      final dy = max[1] - min[1];
+      final dz = max[2] - min[2];
+
+      String? frontDirection;
+      if (frontPositions.isNotEmpty || rearPositions.isNotEmpty) {
+        List<double> avg(List<List<double>> list) {
+          var x = 0.0, y = 0.0, z = 0.0;
+          for (final p in list) {
+            x += p[0];
+            y += p[1];
+            z += p[2];
+          }
+          return [x / list.length, y / list.length, z / list.length];
+        }
+
+        final modelCenter = [
+          (min[0] + max[0]) / 2,
+          (min[1] + max[1]) / 2,
+          (min[2] + max[2]) / 2,
+        ];
+        List<double> dirVector;
+        if (frontPositions.isNotEmpty && rearPositions.isNotEmpty) {
+          final f = avg(frontPositions);
+          final r = avg(rearPositions);
+          dirVector = [f[0] - r[0], f[1] - r[1], f[2] - r[2]];
+        } else if (frontPositions.isNotEmpty) {
+          final f = avg(frontPositions);
+          dirVector = [f[0] - modelCenter[0], f[1] - modelCenter[1], f[2] - modelCenter[2]];
+        } else {
+          final r = avg(rearPositions);
+          dirVector = [modelCenter[0] - r[0], modelCenter[1] - r[1], modelCenter[2] - r[2]];
+        }
+
+        final absX = dirVector[0].abs();
+        final absZ = dirVector[2].abs();
+        if (absZ >= absX && absZ > 0.001) {
+          frontDirection = dirVector[2] > 0 ? '+Z' : '-Z';
+        } else if (absX > absZ && absX > 0.001) {
+          frontDirection = dirVector[0] > 0 ? '+X' : '-X';
+        }
+      }
+
+      if (frontDirection == null) {
+        if (dx > dz * 1.25) {
+          frontDirection = '+X';
+        } else if (dz > dx * 1.25) {
+          frontDirection = '+Z';
+        }
+      }
+
       String f(double v) => v.toStringAsFixed(2);
-      return 'Maße ca. ${f(max[0] - min[0])} × ${f(max[1] - min[1])} × ${f(max[2] - min[2])} '
+      final boundsStr = 'Maße ca. ${f(dx)} × ${f(dy)} × ${f(dz)} '
           '(x × y × z, y = oben), von x ${f(min[0])} bis ${f(max[0])}, '
           'y ${f(min[1])} bis ${f(max[1])}, z ${f(min[2])} bis ${f(max[2])}';
+      if (frontDirection != null) {
+        return '$boundsStr; Original-Vorderseite zeigt nach $frontDirection';
+      }
+      return boundsStr;
     } catch (_) {
       return null;
     }

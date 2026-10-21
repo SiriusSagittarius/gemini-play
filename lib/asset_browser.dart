@@ -30,6 +30,14 @@ class AssetSource {
 
 const kAssetSources = [
   AssetSource(
+    name: 'YouTube – Gameplay-Vorlagen',
+    url: 'https://m.youtube.com/',
+    description: 'Gameplay-Videos oder Shorts als Vorlage für Spielablauf und Design',
+    license: 'Video als KI-Referenz zur Analyse von Gameplay und Steuerung',
+    icon: Icons.video_collection_outlined,
+    freeToUse: true,
+  ),
+  AssetSource(
     name: 'Kenney – 3D-Modelle',
     url: 'https://kenney.nl/assets/category:3D',
     description: 'Rennautos, Strecken, Figuren, Städte, Weltraum – als Paket mit Vorschau',
@@ -193,6 +201,19 @@ class _AssetBrowserScreenState extends State<AssetBrowserScreen> {
     if (_busy) return;
     if (url.startsWith('blob:')) {
       _message('Diese Seite erzeugt die Datei selbst – bitte einen direkten Download-Link nutzen.');
+      return;
+    }
+    if (isYouTubeUrl(url)) {
+      if (!_pages.contains(url)) {
+        setState(() => _pages.add(url));
+        _message('YouTube-Video als Vorlage übernommen.');
+      } else {
+        _message('Dieses Video ist bereits als Vorlage eingetragen.');
+      }
+      return;
+    }
+    if (url.contains('youtube.com') || url.contains('youtu.be')) {
+      _message('Bitte öffne zuerst ein konkretes Video oder Short, bevor du es übernimmst.');
       return;
     }
     setState(() => _busy = true);
